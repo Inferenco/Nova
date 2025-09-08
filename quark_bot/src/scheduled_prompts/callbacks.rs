@@ -1,5 +1,5 @@
 use anyhow::Result;
-use teloxide::{prelude::*, types::InlineKeyboardMarkup};
+use teloxide::{prelude::*, types::{InlineKeyboardMarkup, InlineKeyboardButton as Btn}};
 
 use crate::{
     dependencies::BotDependencies,
@@ -145,13 +145,13 @@ pub async fn handle_scheduled_prompts_callback(
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             let summary = summarize(&st);
             let kb = InlineKeyboardMarkup::new(vec![
-                vec![teloxide::types::InlineKeyboardButton::callback(
+                vec![Btn::callback(
                     "✔️ Create schedule".to_string(),
                     "sched_confirm".to_string(),
                 )],
                 vec![
-                    teloxide::types::InlineKeyboardButton::callback("↩️ Back".to_string(), "sched_back".to_string()),
-                    teloxide::types::InlineKeyboardButton::callback("❌ Cancel".to_string(), "sched_cancel".to_string()),
+                    Btn::callback("↩️ Back".to_string(), "sched_back".to_string()),
+                    Btn::callback("❌ Cancel".to_string(), "sched_cancel".to_string()),
                 ],
             ]);
             bot.answer_callback_query(query.id).await?;

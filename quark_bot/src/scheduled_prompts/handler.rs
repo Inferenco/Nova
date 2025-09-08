@@ -11,7 +11,7 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::summarize,
+        helpers::{summarize, build_nav_keyboard_prompt, build_hours_keyboard_with_nav_prompt},
         runner::{register_all_schedules, register_schedule},
     },
     utils::{
@@ -92,7 +92,7 @@ pub async fn handle_scheduleprompt_command(
     let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
     // First step: show Cancel only
-    let kb = crate::scheduled_prompts::helpers::build_nav_keyboard_prompt(false);
+    let kb = build_nav_keyboard_prompt(false);
     send_markdown_message_with_keyboard(
         bot,
         msg,
@@ -328,7 +328,7 @@ pub async fn handle_message_scheduled_prompts(
                     .await?;
                     return Ok(true);
                 }
-                let kb = crate::scheduled_prompts::helpers::build_hours_keyboard_with_nav_prompt(true);
+                let kb = build_hours_keyboard_with_nav_prompt(true);
                 send_markdown_message_with_keyboard(
                     bot,
                     msg,
