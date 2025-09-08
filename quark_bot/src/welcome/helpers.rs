@@ -6,12 +6,16 @@ pub fn get_default_welcome_message(
     group_name: &str,
     timeout_minutes: u64,
 ) -> String {
-    format!(
+    let mut message = format!(
         "👋 Welcome to {}, {}!\n\n🔒 Please verify you're human by clicking the button below within {} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.",
         escape_for_markdown_v2(group_name),
         escape_for_markdown_v2(&format!("@{}", username)),
         timeout_minutes
-    )
+    );
+
+    message = escape_for_markdown_v2(&message);
+
+    message
 }
 
 pub fn get_custom_welcome_message(
@@ -32,8 +36,6 @@ pub fn get_custom_welcome_message(
         message = message.replace("{username}", &username_mention);
         message = message.replace("{group_name}", group_name);
         message = message.replace("{timeout}", &timeout_minutes);
-
-        println!("message: {}", message);
 
         // Now escape the entire final message for MarkdownV2
         message = escape_for_markdown_v2(&message);
