@@ -7,7 +7,7 @@ pub fn get_default_welcome_message(
     timeout_minutes: u64,
 ) -> String {
     format!(
-        "👋 Welcome to {}, {}\\!\\n\\n🔒 Please verify you're human by clicking the button below within {} minutes\\.\\n\\n⚠️ You'll be automatically removed if you don't verify in time\\.",
+        "👋 Welcome to {}, {}!\n\n🔒 Please verify you're human by clicking the button below within {} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.",
         escape_for_markdown_v2(group_name),
         escape_for_markdown_v2(&format!("@{}", username)),
         timeout_minutes
