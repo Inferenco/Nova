@@ -5,7 +5,7 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{PendingStep, RepeatPolicy},
     scheduled_prompts::handler::finalize_and_register,
-    scheduled_prompts::helpers::{build_minutes_keyboard, build_repeat_keyboard, summarize},
+    scheduled_prompts::helpers::summarize,
 };
 
 pub async fn handle_scheduled_prompts_callback(
@@ -35,7 +35,66 @@ pub async fn handle_scheduled_prompts_callback(
     }
     let key = (&message.chat.id.0, &(user.id.0 as i64));
 
-    if data.starts_with("sched_hour:") {
+    if data.starts_with("sched_back") {
+        let key = (&message.chat.id.0, &(user.id.0 as i64));
+        if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            let prev = match st.step {
+                PendingStep::AwaitingConfirm => Some(PendingStep::AwaitingRepeat),
+                PendingStep::AwaitingRepeat => Some(PendingStep::AwaitingMinute),
+                PendingStep::AwaitingMinute => Some(PendingStep::AwaitingHour),
+                PendingStep::AwaitingHour => Some(PendingStep::AwaitingPrompt),
+                PendingStep::AwaitingPrompt => None,
+            };
+            if let Some(prev_step) = prev {
+                crate::scheduled_prompts::helpers::reset_from_step_prompts(&mut st, prev_step.clone());
+                st.step = prev_step.clone();
+                bot_deps.scheduled_storage.put_pending(key, &st)?;
+                bot.answer_callback_query(query.id).await?;
+                match prev_step {
+                    PendingStep::AwaitingPrompt => {
+                        let kb = crate::scheduled_prompts::helpers::build_nav_keyboard_prompt(false);
+                        bot.edit_message_text(message.chat.id, message.id, "📝 Send the prompt you want to schedule — you can reply to this message or just send it as your next message.")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingStep::AwaitingHour => {
+                        let kb = crate::scheduled_prompts::helpers::build_hours_keyboard_with_nav_prompt(true);
+                        bot.edit_message_text(message.chat.id, message.id, "Select start hour (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingStep::AwaitingMinute => {
+                        let kb = crate::scheduled_prompts::helpers::build_minutes_keyboard_with_nav_prompt(true);
+                        bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingStep::AwaitingRepeat => {
+                        let kb = crate::scheduled_prompts::helpers::build_repeat_keyboard_with_nav_prompt(true);
+                        bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingStep::AwaitingConfirm => { /* unreachable */ }
+                }
+            } else {
+                bot.answer_callback_query(query.id).text("ℹ️ Already at first step").await?;
+            }
+        } else {
+            bot.answer_callback_query(query.id).text("ℹ️ No pending schedule to navigate").await?;
+        }
+    } else if data == "sched_cancel" {
+        let key = (&message.chat.id.0, &(user.id.0 as i64));
+        if bot_deps.scheduled_storage.get_pending(key).is_some() {
+            bot_deps.scheduled_storage.delete_pending(key)?;
+            bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
+                let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
+            }
+        } else {
+            bot.answer_callback_query(query.id).text("ℹ️ No pending schedule to cancel").await?;
+        }
+    } else if data.starts_with("sched_hour:") {
         let hour: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
             st.step = PendingStep::AwaitingMinute;
@@ -43,7 +102,7 @@ pub async fn handle_scheduled_prompts_callback(
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
-                .reply_markup(build_minutes_keyboard())
+                .reply_markup(crate::scheduled_prompts::helpers::build_minutes_keyboard_with_nav_prompt(true))
                 .await?;
         }
     } else if data.starts_with("sched_min:") {
@@ -54,7 +113,7 @@ pub async fn handle_scheduled_prompts_callback(
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                .reply_markup(build_repeat_keyboard())
+                .reply_markup(crate::scheduled_prompts::helpers::build_repeat_keyboard_with_nav_prompt(true))
                 .await?;
         }
     } else if data.starts_with("sched_repeat:") {
@@ -78,12 +137,16 @@ pub async fn handle_scheduled_prompts_callback(
             st.repeat = Some(repeat);
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             let summary = summarize(&st);
-            let kb = InlineKeyboardMarkup::new(vec![vec![
-                teloxide::types::InlineKeyboardButton::callback(
+            let kb = InlineKeyboardMarkup::new(vec![
+                vec![teloxide::types::InlineKeyboardButton::callback(
                     "✔️ Create schedule".to_string(),
                     "sched_confirm".to_string(),
-                ),
-            ]]);
+                )],
+                vec![
+                    teloxide::types::InlineKeyboardButton::callback("↩️ Back".to_string(), "sched_back".to_string()),
+                    teloxide::types::InlineKeyboardButton::callback("❌ Cancel".to_string(), "sched_cancel".to_string()),
+                ],
+            ]);
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, summary)
                 .reply_markup(kb)
