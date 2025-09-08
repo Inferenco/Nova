@@ -25,19 +25,18 @@ pub fn get_custom_welcome_message(
         // First, unescape markdown characters that Telegram escaped
         message = unescape_markdown(&message);
 
-        // Escape the entire message template for MarkdownV2
-        message = escape_for_markdown_v2(&message);
-
-        // Escape dynamic content for MarkdownV2 before replacement
-        let escaped_username = escape_for_markdown_v2(&format!("@{}", username));
-        let escaped_group_name = escape_for_markdown_v2(group_name);
+        // Replace placeholders with unescaped content first
+        let username_mention = format!("@{}", username);
         let timeout_minutes = (settings.verification_timeout / 60).to_string();
-        let escaped_timeout = escape_for_markdown_v2(&timeout_minutes);
 
-        // Replace placeholders with escaped content
-        message = message.replace("\\{username\\}", &escaped_username);
-        message = message.replace("\\{group_name\\}", &escaped_group_name);
-        message = message.replace("\\{timeout\\}", &escaped_timeout);
+        message = message.replace("{username}", &username_mention);
+        message = message.replace("{group_name}", group_name);
+        message = message.replace("{timeout}", &timeout_minutes);
+
+        println!("message: {}", message);
+
+        // Now escape the entire final message for MarkdownV2
+        message = escape_for_markdown_v2(&message);
 
         message
     } else {
