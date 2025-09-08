@@ -5,7 +5,14 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{PendingStep, RepeatPolicy},
     scheduled_prompts::handler::finalize_and_register,
-    scheduled_prompts::helpers::summarize,
+    scheduled_prompts::helpers::{
+        build_hours_keyboard_with_nav_prompt,
+        build_minutes_keyboard_with_nav_prompt,
+        build_repeat_keyboard_with_nav_prompt,
+        build_nav_keyboard_prompt,
+        reset_from_step_prompts,
+        summarize,
+    },
 };
 
 pub async fn handle_scheduled_prompts_callback(
@@ -46,31 +53,31 @@ pub async fn handle_scheduled_prompts_callback(
                 PendingStep::AwaitingPrompt => None,
             };
             if let Some(prev_step) = prev {
-                crate::scheduled_prompts::helpers::reset_from_step_prompts(&mut st, prev_step.clone());
+                reset_from_step_prompts(&mut st, prev_step.clone());
                 st.step = prev_step.clone();
                 bot_deps.scheduled_storage.put_pending(key, &st)?;
                 bot.answer_callback_query(query.id).await?;
                 match prev_step {
                     PendingStep::AwaitingPrompt => {
-                        let kb = crate::scheduled_prompts::helpers::build_nav_keyboard_prompt(false);
+                        let kb = build_nav_keyboard_prompt(false);
                         bot.edit_message_text(message.chat.id, message.id, "📝 Send the prompt you want to schedule — you can reply to this message or just send it as your next message.")
                             .reply_markup(kb)
                             .await?;
                     }
                     PendingStep::AwaitingHour => {
-                        let kb = crate::scheduled_prompts::helpers::build_hours_keyboard_with_nav_prompt(true);
+                        let kb = build_hours_keyboard_with_nav_prompt(true);
                         bot.edit_message_text(message.chat.id, message.id, "Select start hour (UTC)")
                             .reply_markup(kb)
                             .await?;
                     }
                     PendingStep::AwaitingMinute => {
-                        let kb = crate::scheduled_prompts::helpers::build_minutes_keyboard_with_nav_prompt(true);
+                        let kb = build_minutes_keyboard_with_nav_prompt(true);
                         bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
                             .reply_markup(kb)
                             .await?;
                     }
                     PendingStep::AwaitingRepeat => {
-                        let kb = crate::scheduled_prompts::helpers::build_repeat_keyboard_with_nav_prompt(true);
+                        let kb = build_repeat_keyboard_with_nav_prompt(true);
                         bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
                             .reply_markup(kb)
                             .await?;
@@ -102,7 +109,7 @@ pub async fn handle_scheduled_prompts_callback(
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
-                .reply_markup(crate::scheduled_prompts::helpers::build_minutes_keyboard_with_nav_prompt(true))
+                .reply_markup(build_minutes_keyboard_with_nav_prompt(true))
                 .await?;
         }
     } else if data.starts_with("sched_min:") {
@@ -113,7 +120,7 @@ pub async fn handle_scheduled_prompts_callback(
             bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                .reply_markup(crate::scheduled_prompts::helpers::build_repeat_keyboard_with_nav_prompt(true))
+                .reply_markup(build_repeat_keyboard_with_nav_prompt(true))
                 .await?;
         }
     } else if data.starts_with("sched_repeat:") {
