@@ -43,7 +43,7 @@ pub async fn handle_scheduled_payments_callback(
             bot_deps.scheduled_payments.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select minute (UTC)")
-                .reply_markup(crate::scheduled_payments::helpers::build_minutes_keyboard_payments())
+                .reply_markup(crate::scheduled_payments::helpers::build_minutes_keyboard_with_nav_payments(true))
                 .await?;
         }
     } else if data.starts_with("schedpay_min:") {
@@ -54,7 +54,7 @@ pub async fn handle_scheduled_payments_callback(
             bot_deps.scheduled_payments.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                .reply_markup(build_repeat_keyboard_payments())
+                .reply_markup(crate::scheduled_payments::helpers::build_repeat_keyboard_with_nav_payments(true))
                 .await?;
         }
     } else if data.starts_with("schedpay_repeat:") {
@@ -76,10 +76,10 @@ pub async fn handle_scheduled_payments_callback(
                     "✔️ Create schedule".to_string(),
                     "schedpay_confirm".to_string(),
                 )],
-                vec![teloxide::types::InlineKeyboardButton::callback(
-                    "↩️ Cancel",
-                    "schedpay_cancel".to_string(),
-                )],
+                vec![
+                    teloxide::types::InlineKeyboardButton::callback("↩️ Back".to_string(), "schedpay_back".to_string()),
+                    teloxide::types::InlineKeyboardButton::callback("❌ Cancel".to_string(), "schedpay_cancel".to_string()),
+                ],
             ]);
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, summary)
@@ -130,6 +130,81 @@ pub async fn handle_scheduled_payments_callback(
             // No pending payment exists - still respond to prevent UI hang
             bot.answer_callback_query(query.id)
                 .text("ℹ️ No pending payment to cancel")
+                .await?;
+        }
+    } else if data == "schedpay_back" {
+        if let Some(mut st) = bot_deps.scheduled_payments.get_pending(key) {
+            // Determine previous step
+            let prev = match st.step {
+                PendingPaymentStep::AwaitingConfirm => Some(PendingPaymentStep::AwaitingRepeat),
+                PendingPaymentStep::AwaitingRepeat => Some(PendingPaymentStep::AwaitingMinute),
+                PendingPaymentStep::AwaitingMinute => Some(PendingPaymentStep::AwaitingHour),
+                PendingPaymentStep::AwaitingHour => Some(PendingPaymentStep::AwaitingDate),
+                PendingPaymentStep::AwaitingDate => Some(PendingPaymentStep::AwaitingAmount),
+                PendingPaymentStep::AwaitingAmount => Some(PendingPaymentStep::AwaitingToken),
+                PendingPaymentStep::AwaitingToken => Some(PendingPaymentStep::AwaitingRecipient),
+                PendingPaymentStep::AwaitingRecipient => None,
+            };
+            if let Some(prev_step) = prev {
+                // reset values from this step onward so user starts again from here
+                crate::scheduled_payments::helpers::reset_from_step_payments(&mut st, prev_step.clone());
+                st.step = prev_step.clone();
+                bot_deps.scheduled_payments.put_pending(key, &st)?;
+                bot.answer_callback_query(query.id).await?;
+                // Render the appropriate UI for the previous step
+                match prev_step {
+                    PendingPaymentStep::AwaitingRecipient => {
+                        let kb = crate::scheduled_payments::helpers::build_nav_keyboard_payments(false);
+                        bot.edit_message_text(message.chat.id, message.id, "👤 Send the recipient @username to receive payment (must have a linked wallet).")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingToken => {
+                        let kb = crate::scheduled_payments::helpers::build_nav_keyboard_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "💳 Send token symbol (e.g., APT, USDC, or emoji)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingAmount => {
+                        let kb = crate::scheduled_payments::helpers::build_nav_keyboard_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "💰 Send amount (decimal)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingDate => {
+                        let kb = crate::scheduled_payments::helpers::build_nav_keyboard_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "📅 Send start date in YYYY-MM-DD (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingHour => {
+                        let kb = crate::scheduled_payments::helpers::build_hours_keyboard_with_nav_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "⏰ Select hour (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingMinute => {
+                        let kb = crate::scheduled_payments::helpers::build_minutes_keyboard_with_nav_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "Select minute (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingRepeat => {
+                        let kb = crate::scheduled_payments::helpers::build_repeat_keyboard_with_nav_payments(true);
+                        bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingPaymentStep::AwaitingConfirm => { /* unreachable here */ }
+                }
+            } else {
+                bot.answer_callback_query(query.id)
+                    .text("ℹ️ Already at first step")
+                    .await?;
+            }
+        } else {
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ No pending payment to navigate")
                 .await?;
         }
     } else if data.starts_with("schedpay_toggle:") {
