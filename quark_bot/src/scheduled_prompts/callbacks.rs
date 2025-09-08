@@ -20,7 +20,7 @@ pub async fn handle_scheduled_prompts_callback(
     query: teloxide::types::CallbackQuery,
     bot_deps: BotDependencies,
 ) -> Result<()> {
-    let data = query.data.as_ref().unwrap();
+    let data = query.data.as_deref().unwrap_or("");
     let user = &query.from;
     let message = match &query.message {
         Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) => m,
