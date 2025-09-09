@@ -1,5 +1,5 @@
 use anyhow::Result;
-use teloxide::{prelude::*, types::{InlineKeyboardMarkup, InlineKeyboardButton as Btn}};
+use teloxide::{prelude::*, types::{InlineKeyboardMarkup, InlineKeyboardButton as Btn, MaybeInaccessibleMessage}};
 
 use crate::{
     dependencies::BotDependencies,
@@ -23,7 +23,7 @@ pub async fn handle_scheduled_prompts_callback(
     let data = query.data.as_deref().unwrap_or("");
     let user = &query.from;
     let message = match &query.message {
-        Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) => m,
+        Some(MaybeInaccessibleMessage::Regular(m)) => m,
         _ => {
             bot.answer_callback_query(query.id)
                 .text("❌ Invalid context")
@@ -95,7 +95,7 @@ pub async fn handle_scheduled_prompts_callback(
         if bot_deps.scheduled_storage.get_pending(key).is_some() {
             bot_deps.scheduled_storage.delete_pending(key)?;
             bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
+            if let Some(MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
             }
         } else {
