@@ -11,7 +11,7 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::{build_hours_keyboard, summarize},
+        helpers::{summarize, build_nav_keyboard_prompt, build_hours_keyboard_with_nav_prompt},
         runner::{register_all_schedules, register_schedule},
     },
     utils::{
@@ -91,10 +91,13 @@ pub async fn handle_scheduleprompt_command(
 
     let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
-    send_html_message(
-        msg,
+    // First step: show Cancel only
+    let kb = build_nav_keyboard_prompt(false);
+    send_markdown_message_with_keyboard(
         bot,
-        format!(
+        msg,
+        KeyboardMarkupType::InlineKeyboardType(kb),
+        &format!(
             "📝 Send the prompt you want to schedule — you can <b>reply to this message</b> or just <b>send it as your next message</b>.{}\n\nIf your prompt is rejected for using a forbidden action, <b>try again</b> with a safer prompt.",
             note
         ),
@@ -325,7 +328,7 @@ pub async fn handle_message_scheduled_prompts(
                     .await?;
                     return Ok(true);
                 }
-                let kb = build_hours_keyboard();
+                let kb = build_hours_keyboard_with_nav_prompt(true);
                 send_markdown_message_with_keyboard(
                     bot,
                     msg,

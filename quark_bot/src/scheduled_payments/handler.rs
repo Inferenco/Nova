@@ -6,6 +6,7 @@ use crate::scheduled_payments::dto::{
     PendingPaymentStep, PendingPaymentWizardState, ScheduledPaymentRecord,
 };
 use crate::utils::{KeyboardMarkupType, send_markdown_message_with_keyboard, send_message};
+use crate::scheduled_payments::helpers::{build_nav_keyboard_payments, build_hours_keyboard_with_nav_payments};
 use chrono::Utc;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, User};
 use uuid::Uuid;
@@ -76,11 +77,13 @@ pub async fn handle_schedulepayment_command(
         .scheduled_payments
         .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
-    send_message(
-        msg,
+    // First step: show Cancel button
+    let kb = build_nav_keyboard_payments(false);
+    send_markdown_message_with_keyboard(
         bot,
-        "👤 Send the recipient @username to receive payment (must have a linked wallet)."
-            .to_string(),
+        msg,
+        KeyboardMarkupType::InlineKeyboardType(kb),
+        "👤 Send the recipient @username to receive payment (must have a linked wallet).",
     )
     .await?;
 
@@ -263,34 +266,24 @@ pub async fn handle_message_scheduled_payments(
             .unwrap_or("")
             .trim()
             .to_string();
-        if text_raw.eq_ignore_ascii_case("/cancel")
-            || text_raw.to_lowercase().starts_with("/cancel@")
-        {
-            bot_deps.scheduled_payments.delete_pending(pay_key)?;
-            send_message(
-                msg,
-                bot,
-                "✅ Cancelled scheduled payment setup.".to_string(),
-            )
-            .await?;
-            return Ok(true);
-        }
         if text_raw.is_empty() || text_raw.starts_with('/') {
             return Ok(true);
         }
         match st.step {
-            crate::scheduled_payments::dto::PendingPaymentStep::AwaitingRecipient => {
+            PendingPaymentStep::AwaitingRecipient => {
                 // Expect @username
                 let uname = text_raw.trim_start_matches('@').to_string();
                 if let Some(creds) = bot_deps.auth.get_credentials(&uname) {
                     st.recipient_username = Some(uname);
                     st.recipient_address = Some(creds.resource_account_address);
-                    st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken;
+                    st.step = PendingPaymentStep::AwaitingToken;
                     bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                    send_message(
-                        msg,
+                    let kb = build_nav_keyboard_payments(true);
+                    send_markdown_message_with_keyboard(
                         bot,
-                        "💳 Send token symbol (e.g., APT, USDC, or emoji)".to_string(),
+                        msg,
+                        KeyboardMarkupType::InlineKeyboardType(kb),
+                        "💳 Send token symbol (e.g., APT, USDC, or emoji)",
                     )
                     .await?;
                 } else {
@@ -303,7 +296,7 @@ pub async fn handle_message_scheduled_payments(
                 }
                 return Ok(true);
             }
-            crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken => {
+            PendingPaymentStep::AwaitingToken => {
                 let symbol_input = if text_raw.chars().any(|c| c.is_ascii_alphabetic()) {
                     text_raw.to_uppercase()
                 } else {
@@ -341,22 +334,31 @@ pub async fn handle_message_scheduled_payments(
                 st.symbol = Some(symbol);
                 st.token_type = Some(token_type);
                 st.decimals = Some(decimals);
-                st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount;
+                st.step = PendingPaymentStep::AwaitingAmount;
                 bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                send_message(msg, bot, "💰 Send amount (decimal)".to_string()).await?;
+                let kb = build_nav_keyboard_payments(true);
+                send_markdown_message_with_keyboard(
+                    bot,
+                    msg,
+                    KeyboardMarkupType::InlineKeyboardType(kb),
+                    "💰 Send amount (decimal)",
+                )
+                .await?;
                 return Ok(true);
             }
-            crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount => {
+            PendingPaymentStep::AwaitingAmount => {
                 let parsed = text_raw.replace('_', "").replace(',', "");
                 match parsed.parse::<f64>() {
                     Ok(v) if v > 0.0 => {
                         st.amount_display = Some(v);
-                        st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate;
+                        st.step = PendingPaymentStep::AwaitingDate;
                         bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                        send_message(
-                            msg,
+                        let kb = build_nav_keyboard_payments(true);
+                        send_markdown_message_with_keyboard(
                             bot,
-                            "📅 Send start date in YYYY-MM-DD (UTC)".to_string(),
+                            msg,
+                            KeyboardMarkupType::InlineKeyboardType(kb),
+                            "📅 Send start date in YYYY-MM-DD (UTC)",
                         )
                         .await?;
                     }
@@ -371,12 +373,12 @@ pub async fn handle_message_scheduled_payments(
                 }
                 return Ok(true);
             }
-            crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate => {
+            PendingPaymentStep::AwaitingDate => {
                 if chrono::NaiveDate::parse_from_str(&text_raw, "%Y-%m-%d").is_ok() {
                     st.date = Some(text_raw);
-                    st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingHour;
+                    st.step = PendingPaymentStep::AwaitingHour;
                     bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                    let kb = crate::scheduled_payments::helpers::build_hours_keyboard_payments();
+                    let kb = build_hours_keyboard_with_nav_payments(true);
                     send_markdown_message_with_keyboard(
                         bot,
                         msg,
@@ -389,7 +391,7 @@ pub async fn handle_message_scheduled_payments(
                 }
                 return Ok(true);
             }
-            crate::scheduled_payments::dto::PendingPaymentStep::AwaitingConfirm => {
+            PendingPaymentStep::AwaitingConfirm => {
                 // Support 'skip' to keep existing values during edit flow
                 if text_raw.eq_ignore_ascii_case("skip") {
                     // do nothing, keep values
