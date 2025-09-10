@@ -82,6 +82,12 @@ impl MediaGroupAggregator {
             // Determine prompt & command type
             let text = cmd_msg.caption().unwrap_or("");
             let is_group_command = text.trim_start().starts_with("/g ");
+            let is_private_command = text.trim_start().starts_with("/c ");
+
+            if !is_private_command && !is_group_command {
+                return;
+            }
+
             let group_id = if is_group_command && !cmd_msg.chat.is_private() {
                 Some(cmd_msg.chat.id.to_string())
             } else {
@@ -119,7 +125,8 @@ impl MediaGroupAggregator {
                 if let Err(e) = self
                     .bot
                     .send_message(chat_id, "❌ Unable to verify permissions.")
-                    .await {
+                    .await
+                {
                     log::warn!("Failed to send permission error: {}", e);
                 }
                 return;
@@ -130,7 +137,8 @@ impl MediaGroupAggregator {
                 if let Err(e) = self
                     .bot
                     .send_message(chat_id, "❌ Please login first.")
-                    .await {
+                    .await
+                {
                     log::warn!("Failed to send login required message: {}", e);
                 }
                 return;
@@ -184,7 +192,8 @@ impl MediaGroupAggregator {
                     if let Err(e2) = self
                         .bot
                         .send_message(chat_id, "Failed to upload images.")
-                        .await {
+                        .await
+                    {
                         log::warn!("Failed to send upload error message: {}", e2);
                     }
                     log::error!("upload_user_images failed: {}", e);
@@ -220,7 +229,9 @@ impl MediaGroupAggregator {
                         let mut pre_blocks: Vec<String> = Vec::new();
                         let text_without_pre = re
                             .replace_all(&ai_response.text, |caps: &regex::Captures| {
-                                pre_blocks.push(caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string());
+                                pre_blocks.push(
+                                    caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string(),
+                                );
                                 "".to_string()
                             })
                             .to_string();
