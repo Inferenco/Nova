@@ -40,9 +40,6 @@ RUN mkdir -p /app/quark_data && chmod 755 /app/quark_data
 # Copy the debug binary from the builder stage
 COPY --from=builder /app/target/debug/quark_bot .
 
-# Render intent: default to aggressive unless overridden at runtime
-ENV RENDER_INTENT=aggressive
-
 # Expose debug port
 EXPOSE 1234
 

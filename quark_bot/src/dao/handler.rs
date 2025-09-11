@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     dao::dto::ProposalEntry,
     dependencies::BotDependencies,
-    utils::{format_time_duration, send_html_message, send_message},
+    utils::{format_time_duration, send_html_message, send_message, sanitize_telegram_html},
 };
 
 pub async fn execute_create_proposal(
@@ -280,7 +280,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html("✅ <b>DAO preferences saved successfully!</b>"),
+            sanitize_telegram_html("✅ <b>DAO preferences saved successfully!</b>"),
         )
         .parse_mode(ParseMode::Html)
         .await?;
@@ -355,7 +355,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                 "🗑️ <b>Select Deletion After Conclusion Duration</b>\n\n\
             Choose how long voting results are stored after voting concludes:",
             ),
@@ -455,7 +455,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                 "🔔 <b>Select Notification Interval</b>\n\n\
             Choose how often to send notifications for active proposals:",
             ),
@@ -555,7 +555,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                 "🔔 <b>Select Results Notification Interval</b>\n\n\
             Choose how often to send notifications for DAO results:",
             ),
@@ -583,7 +583,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                 "💰 <b>Enter DAO Token</b>\n\n\
             Please send a message with your preferred token ticker or emojicoin.\n\n\
             <b>Examples:</b>\n\
@@ -688,7 +688,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                 "🗳️ <b>Select Vote Duration</b>\n\n\
             Choose how long votes should remain open for proposals:",
             ),
@@ -721,7 +721,7 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                crate::utils::sanitize_telegram_html(
+            sanitize_telegram_html(
                     "🔕 <b>No Disabled Notifications</b>\n\n\
                 All proposals in this group have notifications enabled.",
                 ),
@@ -763,7 +763,7 @@ pub async fn handle_dao_preference_callback(
                 disabled_proposals.len()
             );
 
-            let message_text = crate::utils::sanitize_telegram_html(&message_text);
+            let message_text = sanitize_telegram_html(&message_text);
             bot.edit_message_text(msg.chat.id, msg.id, message_text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -813,7 +813,7 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                crate::utils::sanitize_telegram_html(
+                sanitize_telegram_html(
                     "🔕 <b>No Disabled Notifications</b>\n\n\
                 All proposals in this group have notifications enabled.",
                 ),
@@ -855,7 +855,7 @@ pub async fn handle_dao_preference_callback(
                 disabled_proposals.len()
             );
 
-            let message_text = crate::utils::sanitize_telegram_html(&message_text);
+            let message_text = sanitize_telegram_html(&message_text);
             bot.edit_message_text(msg.chat.id, msg.id, message_text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -958,7 +958,7 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                crate::utils::sanitize_telegram_html("🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:"),
+                sanitize_telegram_html("🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:"),
             )
             .parse_mode(ParseMode::Html)
             .reply_markup(keyboard)
@@ -1061,7 +1061,7 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                crate::utils::sanitize_telegram_html("🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:"),
+                sanitize_telegram_html("🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:"),
             )
             .parse_mode(ParseMode::Html)
             .reply_markup(keyboard)

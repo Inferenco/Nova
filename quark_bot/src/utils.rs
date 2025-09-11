@@ -148,7 +148,15 @@ pub fn markdown_to_html(input: &str) -> String {
 /// Sanitize HTML to the Telegram-supported subset and ensure well-formed tags.
 /// Allowed tags: b,strong,i,em,u,ins,s,strike,del,code,pre,a,span(class=tg-spoiler),blockquote
 /// Allowed attributes: a[href] with http/https/tg schemes; span[class=tg-spoiler]; code[class=language-xxx] (optional)
+// No-op sanitizer for predefined messages. Left public for backward-compat, but returns input as-is.
 pub fn sanitize_telegram_html(input: &str) -> String {
+    input.to_string()
+}
+
+/// Sanitize AI-generated HTML to the Telegram-supported subset and ensure well-formed tags.
+/// Allowed tags: b,strong,i,em,u,ins,s,strike,del,code,pre,a,span(class=tg-spoiler),blockquote
+/// Allowed attributes: a[href] with http/https/tg schemes; span[class=tg-spoiler]; code[class=language-xxx] (optional)
+pub fn sanitize_ai_html(input: &str) -> String {
     // Normalize alternative spoiler tag to span.tg-spoiler
     let normalized = input
         .replace("<tg-spoiler>", r#"<span class=\"tg-spoiler\">"#)
@@ -556,7 +564,6 @@ pub async fn send_message(msg: Message, bot: Bot, text: String) -> Result<(), an
 }
 
 pub async fn send_html_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
-    let text = sanitize_telegram_html(&text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)
@@ -596,7 +603,6 @@ pub async fn send_scheduled_message(
     thread_id: Option<i32>,
 ) -> Result<Message, RequestError> {
     // For scheduled messages, send to thread if thread_id is available
-    let text = sanitize_telegram_html(text);
     let mut request = bot
         .send_message(chat_id, text)
         .parse_mode(ParseMode::Html);
@@ -631,7 +637,6 @@ pub async fn reply_markup(
     keyboard_markup: KeyboardMarkup,
     text: &str,
 ) -> Result<(), RequestError> {
-    let text = sanitize_telegram_html(text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)
@@ -653,7 +658,6 @@ pub async fn reply_inline_markup(
     keyboard_markup: InlineKeyboardMarkup,
     text: &str,
 ) -> Result<(), RequestError> {
-    let text = sanitize_telegram_html(text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)

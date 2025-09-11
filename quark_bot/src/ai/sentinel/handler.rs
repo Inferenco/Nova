@@ -109,14 +109,13 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
 
             let text = format!(
                 "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                token.symbol,
+                token.symbol, 
                 address,
                 min_deposit_formatted,
                 token.symbol,
                 group_balance_formatted,
                 token.symbol
             );
-            let text = crate::utils::sanitize_telegram_html(&text);
             let request= bot.send_message(msg.chat.id, text);
 
             if let Some(thread_id) = thread_id {
@@ -228,7 +227,6 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             user_mention,
                             teloxide::utils::html::escape(message_text)
                         );
-                        let text = crate::utils::sanitize_telegram_html(&text);
                         let request= bot.send_message(msg.chat.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(keyboard);

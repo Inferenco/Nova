@@ -162,7 +162,6 @@ pub async fn show_user_document_library(
                 (response, InlineKeyboardMarkup::new(keyboard_rows))
             };
 
-            let text = crate::utils::sanitize_telegram_html(&text);
             bot.send_message(chat_id, text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)

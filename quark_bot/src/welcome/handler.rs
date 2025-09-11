@@ -146,7 +146,6 @@ async fn show_welcome_settings_menu(
         )],
     ]);
 
-    let text = crate::utils::sanitize_telegram_html(&text);
     match bot
         .edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
@@ -228,7 +227,6 @@ async fn show_custom_message_menu(
         )],
     ]);
 
-    let text = crate::utils::sanitize_telegram_html(&text);
     bot.edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
@@ -265,7 +263,6 @@ async fn show_timeout_menu(bot: Bot, msg: &Message, welcome_service: WelcomeServ
         )],
     ]);
 
-    let text = crate::utils::sanitize_telegram_html(&text);
     bot.edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
@@ -339,7 +336,6 @@ async fn show_welcome_stats(
         )],
     ]);
 
-    let text = crate::utils::sanitize_telegram_html(&text);
     bot.edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
@@ -402,7 +398,6 @@ async fn start_custom_message_input(
         "welcome_back_to_main",
     )]]);
 
-    let text = crate::utils::sanitize_telegram_html(text);
     match bot
         .edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
@@ -467,13 +462,11 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
         )],
     ]);
 
-    let text = crate::utils::sanitize_telegram_html(
-        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.",
-    );
+    // text sanitized no longer needed
     bot.edit_message_text(
         msg.chat.id,
         msg.id,
-        text,
+        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.",
     )
     .parse_mode(ParseMode::Html)
     .reply_markup(keyboard)

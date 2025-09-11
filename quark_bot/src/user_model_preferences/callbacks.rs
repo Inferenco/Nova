@@ -72,11 +72,11 @@ pub async fn handle_model_preferences_callback(
                 } else {
                     "<b>🔴 OFF</b>"
                 };
-                let text = crate::utils::sanitize_telegram_html(&format!(
+                let text = format!(
                     "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
                     model.to_display_string(),
                     reasoning_status
-                ));
+                );
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -126,11 +126,11 @@ pub async fn handle_model_preferences_callback(
                 } else {
                     "<b>🔴 OFF</b>"
                 };
-                let text = crate::utils::sanitize_telegram_html(&format!(
+                let text = format!(
                     "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
                     prefs.chat_model.to_display_string(),
                     reasoning_status
-                ));
+                );
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -161,11 +161,11 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                let text = crate::utils::sanitize_telegram_html(&format!(
+                let text = format!(
                     "✅ <b>Model selected:</b> {}\n✅ <b>Reasoning:</b> {}\n\n🗣️ <b>Verbosity Setting:</b>\nChoose the response verbosity level.",
                     prefs.chat_model.to_display_string(),
                     if prefs.reasoning_enabled { "On" } else { "Off" }
-                ));
+                );
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -195,9 +195,7 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                let text = crate::utils::sanitize_telegram_html(
-                    "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):",
-                );
+                let text = "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):";
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -241,11 +239,11 @@ pub async fn handle_model_preferences_callback(
                 } else {
                     "<b>🔴 OFF</b>"
                 };
-                let text = crate::utils::sanitize_telegram_html(&format!(
+                let text = format!(
                     "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
                     prefs.chat_model.to_display_string(),
                     reasoning_status
-                ));
+                );
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -303,9 +301,7 @@ pub async fn handle_model_preferences_callback(
                     )],
                 ]);
 
-                let text = crate::utils::sanitize_telegram_html(
-                    "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.",
-                );
+                let text = "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.";
                 bot.edit_message_text(msg.chat.id, msg.id, text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)

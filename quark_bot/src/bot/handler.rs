@@ -262,7 +262,9 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                     {
                         // Fallback: send as plain text to preserve content
                         let plain = format!("{}\n{}", title, current);
-                        let _ = bot.send_message(chat_id, plain).await;
+                        if let Err(err) = bot.send_message(chat_id, plain).await {
+                            log::warn!("Fallback plain-text send failed: {}", err);
+                        }
                         return Ok(());
                     }
                     return Err(e.into());
@@ -288,7 +290,9 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                 {
                     // Fallback: send remainder as plain text
                     let plain = format!("{}\n{}", title, current);
-                    let _ = bot.send_message(chat_id, plain).await;
+                    if let Err(err) = bot.send_message(chat_id, plain).await {
+                        log::warn!("Fallback plain-text send failed: {}", err);
+                    }
                     return Ok(());
                 }
                 return Err(e.into());
