@@ -259,6 +259,7 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                     log::error!("Error sending <pre> chunk: {}", err_text);
                     if err_text.contains("can't parse entities")
                         || err_text.contains("Unsupported start tag")
+                        || err_text.contains("message text is empty")
                     {
                         // Fallback: send as plain text to preserve content
                         let plain = format!("{}\n{}", title, current);
@@ -287,6 +288,7 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                 log::error!("Error sending final <pre> chunk: {}", err_text);
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
+                    || err_text.contains("message text is empty")
                 {
                     // Fallback: send remainder as plain text
                     let plain = format!("{}\n{}", title, current);
@@ -313,6 +315,9 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
     let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
+        if chunk.trim().is_empty() {
+            continue;
+        }
         if i > 0 {
             // Small delay between messages to avoid rate limiting
             sleep(Duration::from_millis(100)).await;
@@ -325,6 +330,7 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
                 log::error!("Error sending message chunk: {}", err_text);
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
+                    || err_text.contains("message text is empty")
                 {
                     // Fallback: send this chunk as plain text to preserve content
                     send_message(msg.clone(), bot.clone(), chunk.to_string()).await?;

@@ -14,7 +14,7 @@ use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
-use crate::utils::{self, send_html_message, sanitize_telegram_html};
+use crate::utils::{self, send_html_message};
 use crate::welcome::handler::handle_welcome_settings_callback;
 use anyhow::Result;
 use teloxide::sugar::request::RequestReplyExt;
@@ -68,9 +68,7 @@ pub async fn handle_callback_query(
                                                 "back_to_user_settings",
                                             )],
                                         ]);
-                                        let text = sanitize_telegram_html(
-                                            "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents",
-                                        );
+                                        let text = "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents";
                                         bot.edit_message_text(message.chat.id, message.id, text)
                                             .parse_mode(ParseMode::Html)
                                             .reply_markup(kb)
@@ -168,9 +166,7 @@ pub async fn handle_callback_query(
                                 "back_to_user_settings",
                             )],
                         ]);
-                        let text = sanitize_telegram_html(
-                            "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents",
-                        );
+                        let text = "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents";
                         bot.edit_message_text(message.chat.id, message.id, text)
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(kb)
@@ -321,9 +317,7 @@ pub async fn handle_callback_query(
                             "back_to_user_settings",
                         )],
                     ]);
-                    let text = sanitize_telegram_html(
-                        "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):",
-                    );
+                    let text = "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):";
                     bot.edit_message_text(m.chat.id, m.id, text)
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
@@ -385,7 +379,6 @@ pub async fn handle_callback_query(
                                 "back_to_user_settings",
                             )]]);
 
-                        let text = sanitize_telegram_html(&text);
                         bot.edit_message_text(m.chat.id, m.id, text)
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
@@ -423,10 +416,10 @@ pub async fn handle_callback_query(
                             "back_to_user_settings",
                         )],
                     ]);
-                    let text = sanitize_telegram_html(&format!(
+                    let text = format!(
                         "💳 <b>Payment Settings</b>\n\nDefault currency: <code>{}</code>",
                         default_currency
-                    ));
+                    );
                     bot.edit_message_text(m.chat.id, m.id, text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
@@ -505,7 +498,7 @@ pub async fn handle_callback_query(
                     };
 
                     if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
-                        let text = sanitize_telegram_html(&text);
+                         
                         bot.edit_message_text(message.chat.id, message.id, text)
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
@@ -526,12 +519,11 @@ pub async fn handle_callback_query(
                     "↩️ Back",
                     "open_document_library",
                 )]]);
-                let text = sanitize_telegram_html(
-                    "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!",
-                );
+                let text = "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!";
                 bot.edit_message_text(message.chat.id, message.id, text)
-                .reply_markup(kb)
-                .await?;
+                    .parse_mode(ParseMode::Html)
+                    .reply_markup(kb)
+                    .await?;
             }
         } else if data == "back_to_user_settings" {
             if let Some(message) = &query.message {
@@ -562,9 +554,7 @@ pub async fn handle_callback_query(
                             "user_settings_close",
                         )],
                     ]);
-                    let text = sanitize_telegram_html(
-                        "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.",
-                    );
+                    let text = "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.";
                     bot.edit_message_text(m.chat.id, m.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
@@ -660,7 +650,6 @@ pub async fn handle_callback_query(
                                 (response, InlineKeyboardMarkup::new(keyboard_rows))
                             };
 
-                            let text = sanitize_telegram_html(&text);
                             bot.edit_message_text(m.chat.id, m.id, text)
                                 .parse_mode(ParseMode::Html)
                                 .reply_markup(keyboard)
@@ -711,9 +700,7 @@ pub async fn handle_callback_query(
                                 ) {
                                     Ok(files) => {
                                         if files.is_empty() {
-                                            let text = sanitize_telegram_html(
-                                                "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents",
-                                            );
+                                            let text = "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents";
                                             bot.edit_message_text(m.chat.id, m.id, text)
                                                 .parse_mode(ParseMode::Html)
                                                 .reply_markup(InlineKeyboardMarkup::new(vec![
@@ -779,7 +766,6 @@ pub async fn handle_callback_query(
                                             ]);
                                             let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
 
-                                            let response = sanitize_telegram_html(&response);
                                             bot.edit_message_text(m.chat.id, m.id, response)
                                                 .parse_mode(ParseMode::Html)
                                                 .reply_markup(keyboard)
@@ -834,9 +820,7 @@ pub async fn handle_callback_query(
                     match delete_group_vector_store(group_id.clone(), bot_deps.clone()).await {
                         Ok(_) => {
                             bot.answer_callback_query(query.id).await?;
-                            let text = sanitize_telegram_html(
-                                "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again",
-                            );
+                            let text = "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again";
                             bot.edit_message_text(m.chat.id, m.id, text)
                                 .parse_mode(teloxide::types::ParseMode::Html)
                                 .reply_markup(InlineKeyboardMarkup::new(vec![
@@ -883,12 +867,11 @@ pub async fn handle_callback_query(
                         .set_awaiting(group_id)
                         .await;
 
-                    let text = sanitize_telegram_html(
-                        "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.",
-                    );
+                    let text = "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.";
                     bot.edit_message_text(m.chat.id, m.id, text)
-                    .reply_markup(kb)
-                    .await?;
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
                 }
             }
         } else if data == "open_group_payment_settings" {
@@ -925,10 +908,10 @@ pub async fn handle_callback_query(
                             "back_to_group_settings",
                         )],
                     ]);
-                    let text = sanitize_telegram_html(&format!(
+                    let text = format!(
                         "💳 <b>Group Payment Settings</b>\n\nDefault currency: <code>{}</code>",
                         default_currency
-                    ));
+                    );
                     bot.edit_message_text(m.chat.id, m.id, text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
@@ -1207,9 +1190,7 @@ pub async fn handle_callback_query(
                             "group_settings_close",
                         )],
                     ]);
-                    let text = sanitize_telegram_html(
-                        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.",
-                    );
+                    let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.";
                     bot.edit_message_text(m.chat.id, m.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
@@ -2052,7 +2033,6 @@ pub async fn handle_payment_callback(
                     recipients_text
                 );
 
-                let expired_message = sanitize_telegram_html(&expired_message);
                 bot.edit_message_text(msg.chat.id, msg.id, expired_message)
                     .parse_mode(ParseMode::Html)
                     .await?;
@@ -2120,7 +2100,6 @@ pub async fn handle_payment_callback(
                     // Edit the original message
                     if let Some(message) = &query.message {
                         if let MaybeInaccessibleMessage::Regular(msg) = message {
-                            let success_message = sanitize_telegram_html(&success_message);
                             bot.edit_message_text(msg.chat.id, msg.id, success_message)
                                 .parse_mode(ParseMode::Html)
                                 .await?;
@@ -2137,7 +2116,6 @@ pub async fn handle_payment_callback(
                     // Edit the original message
                     if let Some(message) = &query.message {
                         if let MaybeInaccessibleMessage::Regular(msg) = message {
-                            let error_message = sanitize_telegram_html(&error_message);
                             bot.edit_message_text(msg.chat.id, msg.id, error_message)
                                 .parse_mode(ParseMode::Html)
                                 .await?;
@@ -2181,7 +2159,6 @@ pub async fn handle_payment_callback(
             // Edit the original message
             if let Some(message) = &query.message {
                 if let MaybeInaccessibleMessage::Regular(msg) = message {
-                    let cancel_message = sanitize_telegram_html(&cancel_message);
                     bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
                         .parse_mode(ParseMode::Html)
                         .await?;

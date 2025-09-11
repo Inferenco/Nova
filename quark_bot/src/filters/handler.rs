@@ -6,7 +6,7 @@ use teloxide::{
 };
 
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard, sanitize_telegram_html};
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
 use crate::{
     dependencies::BotDependencies,
     utils::{send_markdown_message, send_message},

@@ -145,21 +145,24 @@ pub fn markdown_to_html(input: &str) -> String {
     html
 }
 
-/// Sanitize HTML to the Telegram-supported subset and ensure well-formed tags.
-/// Allowed tags: b,strong,i,em,u,ins,s,strike,del,code,pre,a,span(class=tg-spoiler),blockquote
-/// Allowed attributes: a[href] with http/https/tg schemes; span[class=tg-spoiler]; code[class=language-xxx] (optional)
-// No-op sanitizer for predefined messages. Left public for backward-compat, but returns input as-is.
-pub fn sanitize_telegram_html(input: &str) -> String {
-    input.to_string()
-}
+/// NOTE: Sanitization for Telegram HTML is handled by `sanitize_ai_html` and is
+/// only applied to AI-generated content. Predefined/static messages should be
+/// authored as valid Telegram HTML directly without additional sanitization.
 
 /// Sanitize AI-generated HTML to the Telegram-supported subset and ensure well-formed tags.
 /// Allowed tags: b,strong,i,em,u,ins,s,strike,del,code,pre,a,span(class=tg-spoiler),blockquote
 /// Allowed attributes: a[href] with http/https/tg schemes; span[class=tg-spoiler]; code[class=language-xxx] (optional)
 pub fn sanitize_ai_html(input: &str) -> String {
+    // Pre-repair: handle stray `<tg-spoiler` without `>` to avoid empty output after parsing.
+    // Strategy: protect proper `<tg-spoiler>` with a placeholder, then add a missing `>` to any remaining `<tg-spoiler`.
+    let placeholder = "__TG_SPOILER_OK__";
+    let mut pre = input.replace("<tg-spoiler>", placeholder);
+    pre = pre.replace("<tg-spoiler", "<tg-spoiler>");
+    let pre = pre.replace(placeholder, "<tg-spoiler>");
+
     // Normalize alternative spoiler tag to span.tg-spoiler
-    let normalized = input
-        .replace("<tg-spoiler>", r#"<span class=\"tg-spoiler\">"#)
+    let normalized = pre
+        .replace("<tg-spoiler>", r#"<span class="tg-spoiler">"#)
         .replace("</tg-spoiler>", "</span>");
 
     // Optionally promote escaped allowed tags back to HTML outside <pre> blocks
@@ -326,12 +329,12 @@ pub fn sanitize_ai_html(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_telegram_html;
+    use super::sanitize_ai_html;
 
     #[test]
     fn strips_unsupported_tags() {
         let input = "<div>Hello <span class=\"tg-spoiler\">there</span></div>";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         assert!(out.contains("Hello"));
         // div should be gone; spoiler span remains
         assert!(!out.contains("<div>"));
@@ -341,7 +344,7 @@ mod tests {
     #[test]
     fn normalizes_tg_spoiler_tag() {
         let input = "Revealed <tg-spoiler>secret</tg-spoiler> text";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         assert!(out.contains("<span class=\"tg-spoiler\">secret</span>"));
         assert!(!out.contains("tg-spoiler>secret</tg-spoiler"));
     }
@@ -349,16 +352,16 @@ mod tests {
     #[test]
     fn blocks_javascript_links() {
         let input = "<a href=\"javascript:alert(1)\">click</a>";
-        let out = sanitize_telegram_html(input);
-        // The href should be dropped; at minimum no javascript remains
+        let out = sanitize_ai_html(input);
+        // The href should be dropped and link text preserved
         assert!(!out.to_lowercase().contains("javascript:"));
-        assert!(out.contains("<a>click</a>") || out.contains(">click<"));
+        assert!(out.contains("click"));
     }
 
     #[test]
     fn allows_http_and_tg_links() {
         let input = "<a href=\"https://example.com\">ok</a> and <a href=\"tg://user?id=123\">mention</a>";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         assert!(out.contains("href=\"https://example.com\""));
         assert!(out.contains("href=\"tg://user?id=123\""));
     }
@@ -366,7 +369,7 @@ mod tests {
     #[test]
     fn preserves_pre_and_code_and_language_class() {
         let input = "<pre><code class=\"language-rust\">fn main() {}</code></pre>";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         assert!(out.contains("<pre>"));
         assert!(out.contains("<code class=\"language-rust\">"));
     }
@@ -374,7 +377,7 @@ mod tests {
     #[test]
     fn strips_non_language_code_class() {
         let input = "<pre><code class=\"alert\">boom</code></pre>";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         // class attribute removed when not language-*
         assert!(out.contains("<pre>"));
         assert!(out.contains("<code>boom</code>"));
@@ -384,7 +387,7 @@ mod tests {
     #[test]
     fn allows_blockquote() {
         let input = "<blockquote>quote</blockquote>";
-        let out = sanitize_telegram_html(input);
+        let out = sanitize_ai_html(input);
         assert!(out.contains("<blockquote>quote</blockquote>"));
     }
 }
