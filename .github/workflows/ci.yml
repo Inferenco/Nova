@@ -16,6 +16,24 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Prepare template sources (if needed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Copy AI template files to expected module names if the real files are absent
+          if [[ -f quark_bot/src/ai/prompt_template.rs && ! -f quark_bot/src/ai/prompt.rs ]]; then
+            cp quark_bot/src/ai/prompt_template.rs quark_bot/src/ai/prompt.rs
+          fi
+          if [[ -f quark_bot/src/ai/moderation/moderation_service_template.rs && ! -f quark_bot/src/ai/moderation/moderation_service.rs ]]; then
+            cp quark_bot/src/ai/moderation/moderation_service_template.rs quark_bot/src/ai/moderation/moderation_service.rs
+          fi
+          if [[ -f quark_bot/src/ai/moderation/overrides_template.rs && ! -f quark_bot/src/ai/moderation/overrides.rs ]]; then
+            cp quark_bot/src/ai/moderation/overrides_template.rs quark_bot/src/ai/moderation/overrides.rs
+          fi
+          if [[ -f quark_bot/src/ai/schedule_guard/schedule_guard_service_template.rs && ! -f quark_bot/src/ai/schedule_guard/schedule_guard_service.rs ]]; then
+            cp quark_bot/src/ai/schedule_guard/schedule_guard_service_template.rs quark_bot/src/ai/schedule_guard/schedule_guard_service.rs
+          fi
+
       - name: Cargo check (workspace)
         run: cargo check --workspace
 
@@ -30,4 +48,3 @@ jobs:
           else
             grep -RIn "\\.parse_mode(ParseMode::Html)" quark_bot/src || true
           fi
-
