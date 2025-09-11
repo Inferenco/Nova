@@ -1,6 +1,7 @@
 //! Utility functions for quark_bot.
 
 use chrono::{DateTime, Utc};
+use ammonia::Builder as HtmlSanitizerBuilder;
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
@@ -142,6 +143,133 @@ pub fn markdown_to_html(input: &str) -> String {
         }
     }
     html
+}
+
+/// Sanitize HTML to the Telegram-supported subset and ensure well-formed tags.
+/// Allowed tags: b,strong,i,em,u,ins,s,strike,del,code,pre,a,span(class=tg-spoiler),blockquote
+/// Allowed attributes: a[href] with http/https/tg schemes; span[class=tg-spoiler]; code[class=language-xxx] (optional)
+pub fn sanitize_telegram_html(input: &str) -> String {
+    // Normalize alternative spoiler tag to span.tg-spoiler
+    let normalized = input
+        .replace("<tg-spoiler>", r#"<span class=\"tg-spoiler\">"#)
+        .replace("</tg-spoiler>", "</span>");
+
+    // Build sanitizer
+    let allowed_tags = [
+        "b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a", "span",
+        // Keep blockquote allowed as internal templates use it (e.g., sentinel notifications)
+        "blockquote",
+    ];
+
+    let mut builder = HtmlSanitizerBuilder::default();
+    // Set exact allowed tags
+    builder.tags(allowed_tags.iter().cloned().collect());
+    // Whitelist attributes per tag via a map
+    let mut tag_attrs: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
+        std::collections::HashMap::new();
+    tag_attrs.insert("a", std::iter::once("href").collect());
+    tag_attrs.insert("span", std::iter::once("class").collect());
+    tag_attrs.insert("code", std::iter::once("class").collect());
+    builder.tag_attributes(tag_attrs);
+    // Restrict URL schemes
+    builder.url_schemes(["http", "https", "tg"].iter().cloned().collect());
+    // Drop all generic attributes
+    builder.generic_attributes(std::collections::HashSet::new());
+
+    let mut cleaned = builder.clean(&normalized).to_string();
+
+    // Post-filter: remove span class if not tg-spoiler, and code class if it doesn't start with "language-"
+    let re_span_class = Regex::new(r#"(<span[^>]*?)\sclass=\"([^\"]*)\"([^>]*>)"#).unwrap();
+    cleaned = re_span_class
+        .replace_all(&cleaned, |caps: &regex::Captures| {
+            let class_val = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            if class_val == "tg-spoiler" {
+                caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+            } else {
+                format!("{}{}", caps.get(1).unwrap().as_str(), caps.get(3).unwrap().as_str())
+            }
+        })
+        .to_string();
+    // This is a best-effort; sanitizer already ensures only safe attributes remain.
+    let re_code_class = Regex::new(r#"(<code[^>]*?)\sclass=\"([^\"]*)\"([^>]*>)"#).unwrap();
+    cleaned = re_code_class
+        .replace_all(&cleaned, |caps: &regex::Captures| {
+            let class_val = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            if class_val.starts_with("language-") {
+                caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+            } else {
+                format!("{}{}", caps.get(1).unwrap().as_str(), caps.get(3).unwrap().as_str())
+            }
+        })
+        .to_string();
+
+    // Minor whitespace tidy (avoid trailing spaces that sometimes cause entity issues)
+    cleaned.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_telegram_html;
+
+    #[test]
+    fn strips_unsupported_tags() {
+        let input = "<div>Hello <span class=\"tg-spoiler\">there</span></div>";
+        let out = sanitize_telegram_html(input);
+        assert!(out.contains("Hello"));
+        // div should be gone; spoiler span remains
+        assert!(!out.contains("<div>"));
+        assert!(out.contains("<span class=\"tg-spoiler\">there</span>"));
+    }
+
+    #[test]
+    fn normalizes_tg_spoiler_tag() {
+        let input = "Revealed <tg-spoiler>secret</tg-spoiler> text";
+        let out = sanitize_telegram_html(input);
+        assert!(out.contains("<span class=\"tg-spoiler\">secret</span>"));
+        assert!(!out.contains("tg-spoiler>secret</tg-spoiler"));
+    }
+
+    #[test]
+    fn blocks_javascript_links() {
+        let input = "<a href=\"javascript:alert(1)\">click</a>";
+        let out = sanitize_telegram_html(input);
+        // The href should be dropped; at minimum no javascript remains
+        assert!(!out.to_lowercase().contains("javascript:"));
+        assert!(out.contains("<a>click</a>") || out.contains(">click<"));
+    }
+
+    #[test]
+    fn allows_http_and_tg_links() {
+        let input = "<a href=\"https://example.com\">ok</a> and <a href=\"tg://user?id=123\">mention</a>";
+        let out = sanitize_telegram_html(input);
+        assert!(out.contains("href=\"https://example.com\""));
+        assert!(out.contains("href=\"tg://user?id=123\""));
+    }
+
+    #[test]
+    fn preserves_pre_and_code_and_language_class() {
+        let input = "<pre><code class=\"language-rust\">fn main() {}</code></pre>";
+        let out = sanitize_telegram_html(input);
+        assert!(out.contains("<pre>"));
+        assert!(out.contains("<code class=\"language-rust\">"));
+    }
+
+    #[test]
+    fn strips_non_language_code_class() {
+        let input = "<pre><code class=\"alert\">boom</code></pre>";
+        let out = sanitize_telegram_html(input);
+        // class attribute removed when not language-*
+        assert!(out.contains("<pre>"));
+        assert!(out.contains("<code>boom</code>"));
+        assert!(!out.contains("class=\"alert\""));
+    }
+
+    #[test]
+    fn allows_blockquote() {
+        let input = "<blockquote>quote</blockquote>";
+        let out = sanitize_telegram_html(input);
+        assert!(out.contains("<blockquote>quote</blockquote>"));
+    }
 }
 
 pub fn normalize_image_url_anchor(text: &str) -> String {
@@ -319,6 +447,7 @@ pub async fn send_message(msg: Message, bot: Bot, text: String) -> Result<(), an
 }
 
 pub async fn send_html_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
+    let text = sanitize_telegram_html(&text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)
@@ -358,7 +487,10 @@ pub async fn send_scheduled_message(
     thread_id: Option<i32>,
 ) -> Result<Message, RequestError> {
     // For scheduled messages, send to thread if thread_id is available
-    let mut request = bot.send_message(chat_id, text).parse_mode(ParseMode::Html);
+    let text = sanitize_telegram_html(text);
+    let mut request = bot
+        .send_message(chat_id, text)
+        .parse_mode(ParseMode::Html);
 
     if let Some(thread) = thread_id {
         request = request.reply_to(MessageId(thread));
@@ -390,6 +522,7 @@ pub async fn reply_markup(
     keyboard_markup: KeyboardMarkup,
     text: &str,
 ) -> Result<(), RequestError> {
+    let text = sanitize_telegram_html(text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)
@@ -411,6 +544,7 @@ pub async fn reply_inline_markup(
     keyboard_markup: InlineKeyboardMarkup,
     text: &str,
 ) -> Result<(), RequestError> {
+    let text = sanitize_telegram_html(text);
     if msg.chat.is_group() || msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, text)
             .parse_mode(ParseMode::Html)

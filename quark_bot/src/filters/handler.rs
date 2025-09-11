@@ -192,7 +192,7 @@ async fn start_filter_wizard(
         "filters_main",
     )]]);
 
-    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!";
+    let text = crate::utils::sanitize_telegram_html("🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!");
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -240,6 +240,7 @@ async fn show_filters_main_menu(
         "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Nova will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n<b>Current filters:</b> {} active",
         filter_count
     );
+    let text = crate::utils::sanitize_telegram_html(&text);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -276,7 +277,7 @@ async fn show_view_filters_menu(
             )],
         ]);
 
-        let text = "📋 <b>Active Filters</b>\n\n<i>No filters found for this group.</i>\n\n💡 Use the button below to create your first filter!";
+        let text = crate::utils::sanitize_telegram_html("📋 <b>Active Filters</b>\n\n<i>No filters found for this group.</i>\n\n💡 Use the button below to create your first filter!");
 
         if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
             bot.edit_message_text(message.chat.id, message.id, text)
@@ -353,6 +354,7 @@ async fn show_view_filters_menu(
         text.push_str("💡 <i>Tap any button below to remove a filter.</i>");
 
         if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+            let text = crate::utils::sanitize_telegram_html(&text);
             bot.edit_message_text(message.chat.id, message.id, text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -374,7 +376,7 @@ async fn show_reset_confirmation(
         InlineKeyboardButton::callback("❌ Cancel", "filters_main"),
     ]]);
 
-    let text = "🗑️ <b>Reset All Filters</b>\n\n⚠️ <b>Warning:</b> This will permanently delete ALL filters in this group.\n\nAre you sure you want to continue?";
+    let text = crate::utils::sanitize_telegram_html("🗑️ <b>Reset All Filters</b>\n\n⚠️ <b>Warning:</b> This will permanently delete ALL filters in this group.\n\nAre you sure you want to continue?");
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -611,6 +613,7 @@ async fn confirm_and_create_filter(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
             {
+                let success_text = crate::utils::sanitize_telegram_html(&success_text);
                 bot.edit_message_text(message.chat.id, message.id, success_text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
@@ -658,11 +661,10 @@ async fn cancel_filter_wizard(
     )]]);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
+        let text = crate::utils::sanitize_telegram_html(
             "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.",
-        )
+        );
+        bot.edit_message_text(message.chat.id, message.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;

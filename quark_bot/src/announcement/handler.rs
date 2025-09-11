@@ -164,16 +164,17 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
 async fn send_announcement_to_user(bot: Bot, user_id: UserId, text: &str) -> Result<()> {
     // Handle long messages by splitting them
     const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
+    let safe = crate::utils::sanitize_telegram_html(text);
 
-    if text.len() > TELEGRAM_MESSAGE_LIMIT {
-        let chunks = split_text(text, TELEGRAM_MESSAGE_LIMIT);
+    if safe.len() > TELEGRAM_MESSAGE_LIMIT {
+        let chunks = split_text(&safe, TELEGRAM_MESSAGE_LIMIT);
         for chunk in chunks {
             bot.send_message(user_id, chunk)
                 .parse_mode(ParseMode::Html)
                 .await?;
         }
     } else {
-        bot.send_message(user_id, text)
+        bot.send_message(user_id, safe)
             .parse_mode(ParseMode::Html)
             .await?;
     }
