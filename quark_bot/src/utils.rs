@@ -154,6 +154,81 @@ pub fn sanitize_telegram_html(input: &str) -> String {
         .replace("<tg-spoiler>", r#"<span class=\"tg-spoiler\">"#)
         .replace("</tg-spoiler>", "</span>");
 
+    // Optionally promote escaped allowed tags back to HTML outside <pre> blocks
+    let aggressive = std::env::var("RENDER_INTENT")
+        .map(|v| {
+            let v = v.to_lowercase();
+            v == "aggressive" || v == "on" || v == "true" || v == "1"
+        })
+        .unwrap_or(false);
+    let mut promotable = normalized.clone();
+    if aggressive {
+        // Temporarily extract <pre> blocks
+        let re_pre = Regex::new(r"(?is)<pre[^>]*>.*?</pre>").unwrap();
+        let mut pre_blocks: Vec<String> = Vec::new();
+        let mut i = 0usize;
+        promotable = re_pre
+            .replace_all(&promotable, |caps: &regex::Captures| {
+                let s = caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string();
+                pre_blocks.push(s);
+                let ph = format!("__PRE_BLOCK_{}__", i);
+                i += 1;
+                ph
+            })
+            .to_string();
+
+        // Promote escaped allowed tags e.g. &lt;b&gt; → <b>
+        let re_escaped_allowed = Regex::new(
+            r#"&lt;(/?)(b|strong|i|em|u|ins|s|strike|del|code|pre|a|span|blockquote)([^&]*)&gt;"#,
+        )
+        .unwrap();
+        promotable = re_escaped_allowed
+            .replace_all(&promotable, |caps: &regex::Captures| {
+                let slash = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let tag = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                let attrs = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+                format!("<{}{}{}>", slash, tag, attrs)
+            })
+            .to_string();
+
+        // Greedy repair: ensure unclosed allowed tags are closed at the end of the fragment
+        let tag_re = Regex::new(
+            r"(?is)<\s*(/)?\s*(b|strong|i|em|u|ins|s|strike|del|code|pre|a|span|blockquote)\b[^>]*>",
+        )
+        .unwrap();
+        let mut out = String::new();
+        let mut last = 0usize;
+        let mut stack: Vec<String> = Vec::new();
+        for caps in tag_re.captures_iter(&promotable) {
+            let m = caps.get(0).unwrap();
+            let end = m.end();
+            out.push_str(&promotable[last..end]);
+            last = end;
+            let is_end = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim().len() > 0;
+            let name = caps.get(2).map(|m| m.as_str()).unwrap_or("").to_lowercase();
+            if !is_end {
+                stack.push(name);
+            } else {
+                if let Some(pos) = stack.iter().rposition(|t| t == &name) {
+                    stack.truncate(pos);
+                }
+            }
+        }
+        out.push_str(&promotable[last..]);
+        if !stack.is_empty() {
+            for name in stack.iter().rev() {
+                out.push_str(&format!("</{}>", name));
+            }
+        }
+        promotable = out;
+
+        // Reinsert <pre> blocks
+        for (idx, block) in pre_blocks.iter().enumerate() {
+            let ph = format!("__PRE_BLOCK_{}__", idx);
+            promotable = promotable.replace(&ph, block);
+        }
+    }
+
     // Build sanitizer
     let allowed_tags = [
         "b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a", "span",
@@ -176,9 +251,11 @@ pub fn sanitize_telegram_html(input: &str) -> String {
     // Drop all generic attributes
     builder.generic_attributes(std::collections::HashSet::new());
 
-    let mut cleaned = builder.clean(&normalized).to_string();
+    let source = if aggressive { &promotable } else { &normalized };
+    let mut cleaned = builder.clean(source).to_string();
 
-    // Post-filter: remove span class if not tg-spoiler, and code class if it doesn't start with "language-"
+    // Post-filter: remove span class if not tg-spoiler, and then unwrap any <span>...</span>
+    // that doesn't carry class="tg-spoiler" (Telegram requires that class on span)
     let re_span_class = Regex::new(r#"(<span[^>]*?)\sclass=\"([^\"]*)\"([^>]*>)"#).unwrap();
     cleaned = re_span_class
         .replace_all(&cleaned, |caps: &regex::Captures| {
@@ -186,7 +263,39 @@ pub fn sanitize_telegram_html(input: &str) -> String {
             if class_val == "tg-spoiler" {
                 caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
             } else {
+                // Drop non-spoiler classes entirely
                 format!("{}{}", caps.get(1).unwrap().as_str(), caps.get(3).unwrap().as_str())
+            }
+        })
+        .to_string();
+    // Unwrap any remaining <span ...>...</span> that does not include class="tg-spoiler"
+    let re_non_tg_span_pair = Regex::new(r"(?is)<span([^>]*)>(.*?)</span>").unwrap();
+    cleaned = re_non_tg_span_pair
+        .replace_all(&cleaned, |caps: &regex::Captures| {
+            let attrs = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            if attrs.contains("class=\"tg-spoiler\"") {
+                // Keep spoiler span as-is
+                caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+            } else {
+                // Unwrap other spans (keep inner text only)
+                caps.get(2).map(|m| m.as_str()).unwrap_or("").to_string()
+            }
+        })
+        .to_string();
+
+    // Unwrap <a> tags that lack href after sanitization to avoid Telegram errors
+    // (Rust regex doesn't support lookarounds; match anchors and check attrs in code.)
+    let re_anchor = Regex::new(r"(?is)<a([^>]*)>(.*?)</a>").unwrap();
+    cleaned = re_anchor
+        .replace_all(&cleaned, |caps: &regex::Captures| {
+            let attrs = caps.get(1).map(|m| m.as_str()).unwrap_or("").to_lowercase();
+            let inner = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            if attrs.contains("href=") {
+                // keep original anchor
+                caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+            } else {
+                // unwrap to plain text
+                inner.to_string()
             }
         })
         .to_string();

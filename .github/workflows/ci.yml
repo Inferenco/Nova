@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check (workspace)
+        run: cargo check --workspace
+
+      - name: Run unit tests for quark_bot
+        run: cargo test -p quark_bot --lib
+
+      - name: Grep for direct HTML sends (informational)
+        run: |
+          echo "Listing .parse_mode(ParseMode::Html) occurrences in quark_bot/src (informational):"
+          if command -v rg >/dev/null 2>&1; then
+            rg -n "\\.parse_mode\\(ParseMode::Html\\)" quark_bot/src || true
+          else
+            grep -RIn "\\.parse_mode(ParseMode::Html)" quark_bot/src || true
+          fi
+

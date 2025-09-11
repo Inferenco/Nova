@@ -38,5 +38,8 @@ COPY --from=builder /app/target/release/quark_bot .
 # Copy the config directory
 COPY quark_bot/config/ ./config/
 
+# Render intent: default to aggressive unless overridden at runtime
+ENV RENDER_INTENT=aggressive
+
 # Run the application
 CMD ["./quark_bot"] 

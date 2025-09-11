@@ -107,18 +107,17 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                 group_balance as f64 / 10_f64.powi(token_decimals as i32)
             );
 
-            let request= bot.send_message(
-                msg.chat.id,
-                format!(
-                    "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                    token.symbol, 
-                    address,
-                    min_deposit_formatted,
-                    token.symbol,
-                    group_balance_formatted,
-                    token.symbol
-                )
+            let text = format!(
+                "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
+                token.symbol,
+                address,
+                min_deposit_formatted,
+                token.symbol,
+                group_balance_formatted,
+                token.symbol
             );
+            let text = crate::utils::sanitize_telegram_html(&text);
+            let request= bot.send_message(msg.chat.id, text);
 
             if let Some(thread_id) = thread_id {
                 request.reply_to(thread_id.0).parse_mode(ParseMode::Html).await?;
@@ -223,15 +222,14 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             )
                         };
 
-                        let request= bot.send_message(
-                            msg.chat.id,
-                            format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
-                                msg.id,
-                                user_mention,
-                                teloxide::utils::html::escape(message_text)
-                            )
-                        )
+                        let text = format!(
+                            "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                            msg.id,
+                            user_mention,
+                            teloxide::utils::html::escape(message_text)
+                        );
+                        let text = crate::utils::sanitize_telegram_html(&text);
+                        let request= bot.send_message(msg.chat.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(keyboard);
 

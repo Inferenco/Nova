@@ -85,6 +85,7 @@ async fn show_command_settings_menu(
         "⚙️ <b>Command Settings</b>\n\nManage which commands are available in this group.\n\n<b>Chat Commands (/c, /chat):</b> {}\n\n💡 <i>When disabled, the /c and /chat commands will not work in this group.</i>",
         chat_status
     );
+    let text = crate::utils::sanitize_telegram_html(&text);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -187,7 +188,7 @@ async fn show_group_settings_menu(
         )],
     ]);
 
-    let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.";
+    let text = crate::utils::sanitize_telegram_html("⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.");
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)

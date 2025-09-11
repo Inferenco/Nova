@@ -260,12 +260,9 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                     if err_text.contains("can't parse entities")
                         || err_text.contains("Unsupported start tag")
                     {
-                        let _ = bot
-                            .send_message(
-                                chat_id,
-                                "Sorry — I made an error in my output. Please try again or start a /newchat.",
-                            )
-                            .await;
+                        // Fallback: send as plain text to preserve content
+                        let plain = format!("{}\n{}", title, current);
+                        let _ = bot.send_message(chat_id, plain).await;
                         return Ok(());
                     }
                     return Err(e.into());
@@ -289,12 +286,9 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
                 {
-                    let _ = bot
-                        .send_message(
-                            chat_id,
-                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
-                        )
-                        .await;
+                    // Fallback: send remainder as plain text
+                    let plain = format!("{}\n{}", title, current);
+                    let _ = bot.send_message(chat_id, plain).await;
                     return Ok(());
                 }
                 return Err(e.into());
@@ -328,7 +322,8 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
                 {
-                    send_message(msg.clone(), bot.clone(), "Sorry — I made an error in my output. Please try again or start a /newchat.".to_string()).await?;
+                    // Fallback: send this chunk as plain text to preserve content
+                    send_message(msg.clone(), bot.clone(), chunk.to_string()).await?;
                     return Ok(());
                 }
                 return Err(e.into());

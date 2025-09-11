@@ -433,6 +433,7 @@ pub async fn register_schedule(
                             } else {
                                 &text_out
                             };
+                            let caption = crate::utils::sanitize_telegram_html(caption);
                             match bot
                                 .send_photo(group_chat_id, photo)
                                 .caption(caption)

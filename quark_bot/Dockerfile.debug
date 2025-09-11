@@ -37,6 +37,9 @@ WORKDIR /app/quark_bot
 # Copy the debug binary from the builder stage
 COPY --from=builder /app/target/debug/quark_bot .
 
+# Render intent: default to aggressive unless overridden at runtime
+ENV RENDER_INTENT=aggressive
+
 # Expose debug port
 EXPOSE 1234
 

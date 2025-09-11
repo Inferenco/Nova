@@ -55,6 +55,7 @@ services:
       - DEFAULT_SYMBOL=${DEFAULT_SYMBOL}
       - SUMMARIZER_ENABLED=${SUMMARIZER_ENABLED}
       - CONVERSATION_TOKEN_LIMIT=${CONVERSATION_TOKEN_LIMIT}
+      - RENDER_INTENT=${RENDER_INTENT}
     networks:
       - quark-net
     volumes:

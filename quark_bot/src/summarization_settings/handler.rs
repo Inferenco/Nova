@@ -96,6 +96,7 @@ async fn show_summarization_settings_menu(
     let keyboard = build_summarization_keyboard_with_context(&effective_prefs, is_group_context);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+        let status_text = crate::utils::sanitize_telegram_html(&status_text);
         bot.edit_message_text(message.chat.id, message.id, status_text)
             .parse_mode(ParseMode::Html)
             .reply_markup(keyboard)
@@ -140,11 +141,10 @@ async fn show_user_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> {
             )],
         ]);
 
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used."
-        )
+        let text = crate::utils::sanitize_telegram_html(
+            "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.",
+        );
+        bot.edit_message_text(message.chat.id, message.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(kb)
         .await?;
@@ -202,11 +202,10 @@ async fn show_group_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> 
             )],
         ]);
 
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings."
-        )
+        let text = crate::utils::sanitize_telegram_html(
+            "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.",
+        );
+        bot.edit_message_text(message.chat.id, message.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(kb)
         .await?;
