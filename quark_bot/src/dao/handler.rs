@@ -280,7 +280,7 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            sanitize_telegram_html("✅ <b>DAO preferences saved successfully!</b>"),
+            "✅ <b>DAO preferences saved successfully!</b>",
         )
         .parse_mode(ParseMode::Html)
         .await?;
@@ -688,10 +688,8 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            sanitize_telegram_html(
-                "🗳️ <b>Select Vote Duration</b>\n\n\
+            "🗳️ <b>Select Vote Duration</b>\n\n\
             Choose how long votes should remain open for proposals:",
-            ),
         )
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
@@ -721,10 +719,8 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-            sanitize_telegram_html(
-                    "🔕 <b>No Disabled Notifications</b>\n\n\
+            "🔕 <b>No Disabled Notifications</b>\n\n\
                 All proposals in this group have notifications enabled.",
-                ),
             )
             .parse_mode(ParseMode::Html)
             .reply_markup(InlineKeyboardMarkup::new(vec![vec![
@@ -763,7 +759,6 @@ pub async fn handle_dao_preference_callback(
                 disabled_proposals.len()
             );
 
-            let message_text = sanitize_telegram_html(&message_text);
             bot.edit_message_text(msg.chat.id, msg.id, message_text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -813,10 +808,8 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                sanitize_telegram_html(
-                    "🔕 <b>No Disabled Notifications</b>\n\n\
+                "🔕 <b>No Disabled Notifications</b>\n\n\
                 All proposals in this group have notifications enabled.",
-                ),
             )
             .parse_mode(ParseMode::Html)
             .reply_markup(InlineKeyboardMarkup::new(vec![vec![

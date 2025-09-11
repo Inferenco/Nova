@@ -117,7 +117,6 @@ pub async fn handle_callback_query(
                                     if let Some(MaybeInaccessibleMessage::Regular(message)) =
                                         &query.message
                                     {
-                                        let response = sanitize_telegram_html(&response);
                                         bot.edit_message_text(message.chat.id, message.id, response)
                                         .parse_mode(ParseMode::Html)
                                         .reply_markup(keyboard)

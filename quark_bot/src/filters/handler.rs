@@ -660,13 +660,10 @@ async fn cancel_filter_wizard(
     )]]);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        let text = sanitize_telegram_html(
-            "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.",
-        );
-        bot.edit_message_text(message.chat.id, message.id, text)
-        .parse_mode(ParseMode::Html)
-        .reply_markup(keyboard)
-        .await?;
+        bot.edit_message_text(message.chat.id, message.id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
+            .await?;
     }
 
     bot.answer_callback_query(query.id.clone())
