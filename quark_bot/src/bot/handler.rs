@@ -305,7 +305,7 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
     // Normalize image anchor to point to the public GCS URL when present
     let html_text = utils::normalize_image_url_anchor(&html_text);
     // Sanitize to Telegram-safe HTML before splitting/sending
-    let html_text = utils::sanitize_telegram_html(&html_text);
+    let html_text = utils::sanitize_ai_html(&html_text);
     let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
@@ -822,7 +822,7 @@ pub async fn handle_chat(
                 } else {
                     &text_without_pre
                 };
-                let caption = utils::sanitize_telegram_html(caption);
+                let caption = utils::sanitize_ai_html(caption);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
                     .parse_mode(ParseMode::Html)
