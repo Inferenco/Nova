@@ -5,7 +5,13 @@ use teloxide::{
 };
 use tokio_cron_scheduler::Job;
 
-use crate::utils::{create_purchase_request, send_scheduled_message};
+use crate::utils::{
+    create_purchase_request,
+    send_scheduled_message,
+    markdown_to_html,
+    sanitize_ai_html,
+    normalize_image_url_anchor,
+};
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{RepeatPolicy, ScheduledPromptRecord},
@@ -93,8 +99,11 @@ async fn send_long_message(
     text: &str,
     thread_id: Option<i32>,
 ) -> usize {
-    // AI responses are already Telegram-HTML formatted; send as-is
-    let parts = split_message(text);
+    // Normalize content to Telegram-safe HTML (aligns with interactive path)
+    let html_text = markdown_to_html(text);
+    let html_text = normalize_image_url_anchor(&html_text);
+    let html_text = sanitize_ai_html(&html_text);
+    let parts = split_message(&html_text);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {
             sleep(Duration::from_millis(100)).await;
