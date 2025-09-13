@@ -164,7 +164,6 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
 async fn send_announcement_to_user(bot: Bot, user_id: UserId, text: &str) -> Result<()> {
     // Handle long messages by splitting them
     const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-
     if text.len() > TELEGRAM_MESSAGE_LIMIT {
         let chunks = split_text(text, TELEGRAM_MESSAGE_LIMIT);
         for chunk in chunks {

@@ -462,6 +462,7 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
         )],
     ]);
 
+    // text sanitized no longer needed
     bot.edit_message_text(
         msg.chat.id,
         msg.id,

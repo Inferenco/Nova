@@ -353,6 +353,7 @@ async fn show_view_filters_menu(
         text.push_str("💡 <i>Tap any button below to remove a filter.</i>");
 
         if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+            let text = &text;
             bot.edit_message_text(message.chat.id, message.id, text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -611,6 +612,7 @@ async fn confirm_and_create_filter(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
             {
+                let success_text = success_text;
                 bot.edit_message_text(message.chat.id, message.id, success_text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
@@ -658,14 +660,10 @@ async fn cancel_filter_wizard(
     )]]);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.",
-        )
-        .parse_mode(ParseMode::Html)
-        .reply_markup(keyboard)
-        .await?;
+        bot.edit_message_text(message.chat.id, message.id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
+            .await?;
     }
 
     bot.answer_callback_query(query.id.clone())
