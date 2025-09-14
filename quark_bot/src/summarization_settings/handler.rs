@@ -140,11 +140,8 @@ async fn show_user_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> {
             )],
         ]);
 
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used."
-        )
+        let text = "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.";
+        bot.edit_message_text(message.chat.id, message.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(kb)
         .await?;
@@ -202,11 +199,8 @@ async fn show_group_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> 
             )],
         ]);
 
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings."
-        )
+        let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.";
+        bot.edit_message_text(message.chat.id, message.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(kb)
         .await?;

@@ -34,3 +34,4 @@ chrono = { workspace = true }
 futures = { workspace = true }
 rand = {workspace = true}
 ron = { workspace = true }
+ammonia = "3.3"

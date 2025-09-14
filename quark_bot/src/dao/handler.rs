@@ -711,7 +711,7 @@ pub async fn handle_dao_preference_callback(
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                "🔕 <b>No Disabled Notifications</b>\n\n\
+            "🔕 <b>No Disabled Notifications</b>\n\n\
                 All proposals in this group have notifications enabled.",
             )
             .parse_mode(ParseMode::Html)

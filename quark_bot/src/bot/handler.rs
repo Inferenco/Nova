@@ -259,13 +259,13 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                     log::error!("Error sending <pre> chunk: {}", err_text);
                     if err_text.contains("can't parse entities")
                         || err_text.contains("Unsupported start tag")
+                        || err_text.contains("message text is empty")
                     {
-                        let _ = bot
-                            .send_message(
-                                chat_id,
-                                "Sorry — I made an error in my output. Please try again or start a /newchat.",
-                            )
-                            .await;
+                        // Fallback: send as plain text to preserve content
+                        let plain = format!("{}\n{}", title, current);
+                        if let Err(err) = bot.send_message(chat_id, plain).await {
+                            log::warn!("Fallback plain-text send failed: {}", err);
+                        }
                         return Ok(());
                     }
                     return Err(e.into());
@@ -288,13 +288,13 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
                 log::error!("Error sending final <pre> chunk: {}", err_text);
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
+                    || err_text.contains("message text is empty")
                 {
-                    let _ = bot
-                        .send_message(
-                            chat_id,
-                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
-                        )
-                        .await;
+                    // Fallback: send remainder as plain text
+                    let plain = format!("{}\n{}", title, current);
+                    if let Err(err) = bot.send_message(chat_id, plain).await {
+                        log::warn!("Fallback plain-text send failed: {}", err);
+                    }
                     return Ok(());
                 }
                 return Err(e.into());
@@ -310,9 +310,14 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
     let html_text = utils::markdown_to_html(text);
     // Normalize image anchor to point to the public GCS URL when present
     let html_text = utils::normalize_image_url_anchor(&html_text);
+    // Sanitize to Telegram-safe HTML before splitting/sending
+    let html_text = utils::sanitize_ai_html(&html_text);
     let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
+        if chunk.trim().is_empty() {
+            continue;
+        }
         if i > 0 {
             // Small delay between messages to avoid rate limiting
             sleep(Duration::from_millis(100)).await;
@@ -325,8 +330,10 @@ async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()>
                 log::error!("Error sending message chunk: {}", err_text);
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
+                    || err_text.contains("message text is empty")
                 {
-                    send_message(msg.clone(), bot.clone(), "Sorry — I made an error in my output. Please try again or start a /newchat.".to_string()).await?;
+                    // Fallback: send this chunk as plain text to preserve content
+                    send_message(msg.clone(), bot.clone(), chunk.to_string()).await?;
                     return Ok(());
                 }
                 return Err(e.into());
@@ -825,6 +832,7 @@ pub async fn handle_chat(
                 } else {
                     &text_without_pre
                 };
+                let caption = utils::sanitize_ai_html(caption);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
                     .parse_mode(ParseMode::Html)

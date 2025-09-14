@@ -6,7 +6,7 @@ use teloxide::{
 };
 
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard, escape_for_markdown_v2};
 use crate::{
     dependencies::BotDependencies,
     utils::{send_markdown_message, send_message},
@@ -96,14 +96,24 @@ pub async fn process_message_for_filters(
             Ok(matches) => {
                 if let Some(filter_match) = matches.first() {
                     // Extract user info for placeholders
-                    let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
                     let group_name = msg.chat.title().unwrap_or("Group").to_string();
                     let trigger = &filter_match.matched_text;
 
                     // Replace placeholders in the response
+                    // Build a safe MarkdownV2 tg://user mention for the sender
+                    let mention_markup = msg.from.as_ref().map(|u| {
+                        let display = if let Some(un) = &u.username {
+                            format!("@{}", un)
+                        } else {
+                            u.first_name.clone()
+                        };
+                        let escaped = escape_for_markdown_v2(&display);
+                        format!("[{}](tg://user?id={})", escaped, u.id.0)
+                    });
+
                     let personalized_response = replace_filter_placeholders(
                         &filter_match.filter.response,
-                        username,
+                        mention_markup.as_deref(),
                         &group_name,
                         trigger,
                         filter_match.filter.response_type.clone(),
@@ -353,6 +363,7 @@ async fn show_view_filters_menu(
         text.push_str("💡 <i>Tap any button below to remove a filter.</i>");
 
         if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+            let text = &text;
             bot.edit_message_text(message.chat.id, message.id, text)
                 .parse_mode(ParseMode::Html)
                 .reply_markup(keyboard)
@@ -611,6 +622,7 @@ async fn confirm_and_create_filter(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
             {
+                let success_text = success_text;
                 bot.edit_message_text(message.chat.id, message.id, success_text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
@@ -658,14 +670,10 @@ async fn cancel_filter_wizard(
     )]]);
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(
-            message.chat.id,
-            message.id,
-            "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.",
-        )
-        .parse_mode(ParseMode::Html)
-        .reply_markup(keyboard)
-        .await?;
+        bot.edit_message_text(message.chat.id, message.id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
+            .await?;
     }
 
     bot.answer_callback_query(query.id.clone())
@@ -731,7 +739,7 @@ pub async fn handle_message_filters(
                 send_html_message(
                     msg.clone(),
                     bot.clone(),
-                    "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>You can use Markdown formatting (bold, code, etc.) or just plain text. Both work perfectly!</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>**Bold text** works great!</code>\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>".to_string(),
+                    "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>*Bold text*</code> works great!\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>".to_string(),
                 ).await?;
                 return Ok(true);
             }

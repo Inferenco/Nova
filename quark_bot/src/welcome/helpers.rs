@@ -2,25 +2,22 @@ use crate::utils::{escape_for_markdown_v2, unescape_markdown};
 use crate::welcome::dto::WelcomeSettings;
 
 pub fn get_default_welcome_message(
-    username: &str,
+    username_markup: &str,
     group_name: &str,
     timeout_minutes: u64,
 ) -> String {
-    let mut message = format!(
+    let escaped_group_name = escape_for_markdown_v2(group_name);
+    let escaped_timeout = escape_for_markdown_v2(&timeout_minutes.to_string());
+
+    format!(
         "👋 Welcome to {}, {}!\n\n🔒 Please verify you're human by clicking the button below within {} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.",
-        escape_for_markdown_v2(group_name),
-        escape_for_markdown_v2(&format!("@{}", username)),
-        timeout_minutes
-    );
-
-    message = escape_for_markdown_v2(&message);
-
-    message
+        escaped_group_name, username_markup, escaped_timeout
+    )
 }
 
 pub fn get_custom_welcome_message(
     settings: &WelcomeSettings,
-    username: &str,
+    username_markup: &str,
     group_name: &str,
 ) -> String {
     if let Some(ref custom_msg) = settings.custom_message {
@@ -29,20 +26,25 @@ pub fn get_custom_welcome_message(
         // First, unescape markdown characters that Telegram escaped
         message = unescape_markdown(&message);
 
-        // Replace placeholders with unescaped content first
-        let username_mention = format!("@{}", username);
+        // Prepare dynamic, safely escaped replacements
+        // username_markup is already MarkdownV2 link entity like
+        // [@username](tg://user?id=123) or [First Name](tg://user?id=123)
+        let escaped_group_name = escape_for_markdown_v2(group_name);
         let timeout_minutes = (settings.verification_timeout / 60).to_string();
+        let escaped_timeout = escape_for_markdown_v2(&timeout_minutes);
 
-        message = message.replace("{username}", &username_mention);
-        message = message.replace("{group_name}", group_name);
-        message = message.replace("{timeout}", &timeout_minutes);
-
-        // Now escape the entire final message for MarkdownV2
-        message = escape_for_markdown_v2(&message);
+        // Replace placeholders
+        message = message.replace("{username}", username_markup);
+        message = message.replace("{group_name}", &escaped_group_name);
+        message = message.replace("{timeout}", &escaped_timeout);
 
         message
     } else {
-        get_default_welcome_message(username, group_name, settings.verification_timeout / 60)
+        get_default_welcome_message(
+            username_markup,
+            group_name,
+            settings.verification_timeout / 60,
+        )
     }
 }
 

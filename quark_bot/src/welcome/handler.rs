@@ -198,14 +198,14 @@ async fn show_custom_message_menu(
         "✏️ <b>Custom Welcome Message</b>\n\n\
             Current message:\n\
             <code>{}</code>\n\n\
-            💡 <i>You can use Markdown formatting (bold, code, etc.) or just plain text. Both work perfectly!</i>\n\n\
+            💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n\
             Available placeholders:\n\
             • {{username}} - @username (creates clickable mention)\n\
             • {{group_name}} - Group name\n\
             • {{timeout}} - Verification timeout in minutes\n\n\
             <b>Examples:</b>\n\
             • <code>Hello {{username}}! Welcome to {{group_name}}! 👋</code>\n\
-            • <code>**Bold welcome** to {{group_name}}, {{username}}!</code>\n\
+            • <code>*Bold welcome*</code> to <code>{{group_name}}</code>, <code>{{username}}</code>!\n\
             • <code>Use `code` for inline formatting</code>\n\n\
             To set a custom message, reply to this message with your text.\n\
             To use the default message, click 'Reset to Default'.",
@@ -382,14 +382,14 @@ async fn start_custom_message_input(
 ) -> Result<()> {
     let text = "✏️ <b>Custom Welcome Message</b>\n\n\
         Please reply to this message with your custom welcome message.\n\n\
-        💡 <i>You can use Markdown formatting (bold, code, etc.) or just plain text. Both work perfectly!</i>\n\n\
+        💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n\
         Available placeholders:\n\
         • {username} - @username (creates clickable mention)\n\
         • {group_name} - Group name\n\
         • {timeout} - Verification timeout in minutes\n\n\
         <b>Examples:</b>\n\
         • <code>Hello {username}! Welcome to {group_name}! 👋</code>\n\
-        • <code>**Bold welcome** to {group_name}, {username}!</code>\n\
+        • <code>*Bold welcome*</code> to <code>{group_name}</code>, <code>{username}</code>!\n\
         • <code>Use `code` for inline formatting</code>\n\n\
         <i>Send /cancel to cancel or just send your message.</i>";
 
@@ -462,6 +462,7 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
         )],
     ]);
 
+    // text sanitized no longer needed
     bot.edit_message_text(
         msg.chat.id,
         msg.id,

@@ -68,7 +68,8 @@ pub async fn handle_callback_query(
                                                 "back_to_user_settings",
                                             )],
                                         ]);
-                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
+                                        let text = "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents";
+                                        bot.edit_message_text(message.chat.id, message.id, text)
                                             .parse_mode(ParseMode::Html)
                                             .reply_markup(kb)
                                             .await?;
@@ -114,11 +115,7 @@ pub async fn handle_callback_query(
                                     if let Some(MaybeInaccessibleMessage::Regular(message)) =
                                         &query.message
                                     {
-                                        bot.edit_message_text(
-                                            message.chat.id,
-                                            message.id,
-                                            response,
-                                        )
+                                        bot.edit_message_text(message.chat.id, message.id, response)
                                         .parse_mode(ParseMode::Html)
                                         .reply_markup(keyboard)
                                         .await?;
@@ -169,7 +166,8 @@ pub async fn handle_callback_query(
                                 "back_to_user_settings",
                             )],
                         ]);
-                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
+                        let text = "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents";
+                        bot.edit_message_text(message.chat.id, message.id, text)
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(kb)
                             .await?;
@@ -319,11 +317,8 @@ pub async fn handle_callback_query(
                             "back_to_user_settings",
                         )],
                     ]);
-                    bot.edit_message_text(
-                        m.chat.id,
-                        m.id,
-                        "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):",
-                    )
+                    let text = "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):";
+                    bot.edit_message_text(m.chat.id, m.id, text)
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
                     .await?;
@@ -421,14 +416,11 @@ pub async fn handle_callback_query(
                             "back_to_user_settings",
                         )],
                     ]);
-                    bot.edit_message_text(
-                        m.chat.id,
-                        m.id,
-                        format!(
-                            "💳 <b>Payment Settings</b>\n\nDefault currency: <code>{}</code>",
-                            default_currency
-                        ),
-                    )
+                    let text = format!(
+                        "💳 <b>Payment Settings</b>\n\nDefault currency: <code>{}</code>",
+                        default_currency
+                    );
+                    bot.edit_message_text(m.chat.id, m.id, text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
@@ -506,6 +498,7 @@ pub async fn handle_callback_query(
                     };
 
                     if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                         
                         bot.edit_message_text(message.chat.id, message.id, text)
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
@@ -526,13 +519,11 @@ pub async fn handle_callback_query(
                     "↩️ Back",
                     "open_document_library",
                 )]]);
-                bot.edit_message_text(
-                    message.chat.id,
-                    message.id,
-                    "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!",
-                )
-                .reply_markup(kb)
-                .await?;
+                let text = "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!";
+                bot.edit_message_text(message.chat.id, message.id, text)
+                    .parse_mode(ParseMode::Html)
+                    .reply_markup(kb)
+                    .await?;
             }
         } else if data == "back_to_user_settings" {
             if let Some(message) = &query.message {
@@ -563,7 +554,8 @@ pub async fn handle_callback_query(
                             "user_settings_close",
                         )],
                     ]);
-                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.")
+                    let text = "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.";
+                    bot.edit_message_text(m.chat.id, m.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
@@ -708,7 +700,8 @@ pub async fn handle_callback_query(
                                 ) {
                                     Ok(files) => {
                                         if files.is_empty() {
-                                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
+                                            let text = "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents";
+                                            bot.edit_message_text(m.chat.id, m.id, text)
                                                 .parse_mode(ParseMode::Html)
                                                 .reply_markup(InlineKeyboardMarkup::new(vec![
                                                     vec![InlineKeyboardButton::callback(
@@ -827,7 +820,8 @@ pub async fn handle_callback_query(
                     match delete_group_vector_store(group_id.clone(), bot_deps.clone()).await {
                         Ok(_) => {
                             bot.answer_callback_query(query.id).await?;
-                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again")
+                            let text = "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again";
+                            bot.edit_message_text(m.chat.id, m.id, text)
                                 .parse_mode(teloxide::types::ParseMode::Html)
                                 .reply_markup(InlineKeyboardMarkup::new(vec![
                                     vec![InlineKeyboardButton::callback(
@@ -873,13 +867,11 @@ pub async fn handle_callback_query(
                         .set_awaiting(group_id)
                         .await;
 
-                    bot.edit_message_text(
-                        m.chat.id,
-                        m.id,
-                        "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.",
-                    )
-                    .reply_markup(kb)
-                    .await?;
+                    let text = "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.";
+                    bot.edit_message_text(m.chat.id, m.id, text)
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
                 }
             }
         } else if data == "open_group_payment_settings" {
@@ -916,14 +908,11 @@ pub async fn handle_callback_query(
                             "back_to_group_settings",
                         )],
                     ]);
-                    bot.edit_message_text(
-                        m.chat.id,
-                        m.id,
-                        format!(
-                            "💳 <b>Group Payment Settings</b>\n\nDefault currency: <code>{}</code>",
-                            default_currency
-                        ),
-                    )
+                    let text = format!(
+                        "💳 <b>Group Payment Settings</b>\n\nDefault currency: <code>{}</code>",
+                        default_currency
+                    );
+                    bot.edit_message_text(m.chat.id, m.id, text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
@@ -1201,7 +1190,8 @@ pub async fn handle_callback_query(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.";
+                    bot.edit_message_text(m.chat.id, m.id, text)
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
