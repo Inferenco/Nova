@@ -120,9 +120,16 @@ impl WelcomeService {
         )]]);
 
         // Send welcome message with verification button
-        // Prefer the user's actual @username for a clickable mention; fall back to first name
-        let username_for_message = username.as_deref().unwrap_or(&first_name);
-        let welcome_text = get_custom_welcome_message(&settings, username_for_message, &group_name);
+        // Prefer the user's actual @username in a safe clickable mention; fall back to first name
+        let display_name = if let Some(ref u) = username {
+            format!("@{}", u)
+        } else {
+            first_name.clone()
+        };
+        // Escape display text for MarkdownV2, then create a tg:// user mention link
+        let escaped_display = escape_for_markdown_v2(&display_name);
+        let mention_markup = format!("[{}](tg://user?id={})", escaped_display, user_id.0);
+        let welcome_text = get_custom_welcome_message(&settings, &mention_markup, &group_name);
         let message = bot
             .send_message(chat_id, welcome_text)
             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
@@ -540,7 +547,6 @@ impl WelcomeService {
         Ok(())
     }
 }
-
 
 
 

@@ -96,7 +96,7 @@ pub fn summarize(state: &PendingFilterWizardState) -> String {
         MatchType::EndsWith => "Message ends with",
     };
     format!(
-        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: Markdown (supports both markdown and plain text)",
+        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: MarkdownV2 (or plain text)",
         triggers_display, response, match_type
     )
 }
@@ -154,6 +154,5 @@ pub fn replace_filter_placeholders(
     
     result
 }
-
 
 
