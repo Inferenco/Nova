@@ -107,12 +107,16 @@ pub fn summarize(state: &PendingFilterWizardState) -> String {
 /// - {username} -> @username (with @ prefix for Telegram mentions)
 /// - {group_name} -> actual group name
 /// - {trigger} -> actual trigger word/phrase
+/// Replace placeholders in a filter response string.
+/// For Markdown responses, `username_markup` should be a pre-escaped MarkdownV2 link entity
+/// like `[display](tg://user?id=123)`. For Text responses, pass `None` and we will use
+/// a simple `@username` fallback.
 pub fn replace_filter_placeholders(
-    response: &str, 
-    username: Option<&str>, 
-    group_name: &str, 
+    response: &str,
+    username_markup: Option<&str>,
+    group_name: &str,
     trigger: &str,
-    response_type: ResponseType
+    response_type: ResponseType,
 ) -> String {
     let mut result = response.to_string();
     
@@ -120,14 +124,14 @@ pub fn replace_filter_placeholders(
         ResponseType::Markdown => {
             // For markdown responses, unescape and then escape for MarkdownV2
             result = unescape_markdown(&result);
-            
-            // Replace username with @ prefix for Telegram mentions, then escape for MarkdownV2
-            let username_display = if let Some(username) = username {
-                escape_for_markdown_v2(&format!("@{}", username))
+
+            // Use prebuilt mention markup if provided; otherwise a generic label
+            let username_display = if let Some(markup) = username_markup {
+                markup.to_string()
             } else {
                 escape_for_markdown_v2("User")
             };
-            
+
             // Escape dynamic content for MarkdownV2 before replacement
             let escaped_group_name = escape_for_markdown_v2(group_name);
             let escaped_trigger = escape_for_markdown_v2(trigger);
@@ -139,8 +143,18 @@ pub fn replace_filter_placeholders(
         },
         ResponseType::Text => {
             // For text responses, just do simple placeholder replacement without any escaping
-            let username_display = if let Some(username) = username {
-                format!("@{}", username)
+            let username_display = if let Some(markup) = username_markup {
+                // If markup is given, best-effort strip to display text by removing the link part
+                // Fallback: use markup as-is
+                if let Some(start) = markup.find('[') {
+                    if let Some(end) = markup[start+1..].find(']') {
+                        markup[start+1..start+1+end].to_string()
+                    } else {
+                        markup.to_string()
+                    }
+                } else {
+                    markup.to_string()
+                }
             } else {
                 "User".to_string()
             };
@@ -154,5 +168,4 @@ pub fn replace_filter_placeholders(
     
     result
 }
-
 

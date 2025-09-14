@@ -6,7 +6,7 @@ use teloxide::{
 };
 
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard, escape_for_markdown_v2};
 use crate::{
     dependencies::BotDependencies,
     utils::{send_markdown_message, send_message},
@@ -96,14 +96,24 @@ pub async fn process_message_for_filters(
             Ok(matches) => {
                 if let Some(filter_match) = matches.first() {
                     // Extract user info for placeholders
-                    let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
                     let group_name = msg.chat.title().unwrap_or("Group").to_string();
                     let trigger = &filter_match.matched_text;
 
                     // Replace placeholders in the response
+                    // Build a safe MarkdownV2 tg://user mention for the sender
+                    let mention_markup = msg.from.as_ref().map(|u| {
+                        let display = if let Some(un) = &u.username {
+                            format!("@{}", un)
+                        } else {
+                            u.first_name.clone()
+                        };
+                        let escaped = escape_for_markdown_v2(&display);
+                        format!("[{}](tg://user?id={})", escaped, u.id.0)
+                    });
+
                     let personalized_response = replace_filter_placeholders(
                         &filter_match.filter.response,
-                        username,
+                        mention_markup.as_deref(),
                         &group_name,
                         trigger,
                         filter_match.filter.response_type.clone(),
