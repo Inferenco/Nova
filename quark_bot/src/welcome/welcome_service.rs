@@ -174,9 +174,9 @@ impl WelcomeService {
 
         let key = format!(
             "{}-{}:{}",
-            chat_id.to_string(),
+            chat_id.0,
             self.account_seed,
-            user_id.to_string()
+            user_id.0
         );
 
         // Get verification record
