@@ -10,7 +10,7 @@ pub fn get_default_welcome_message(
     let escaped_timeout = escape_for_markdown_v2(&timeout_minutes.to_string());
 
     format!(
-        "👋 Welcome to {}, {}!\n\n🔒 Please verify you're human by clicking the button below within {} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.",
+        "👋 Welcome to {}, {}\\!\n\n🔒 Please verify you're human by clicking the button below within {} minutes\\.\n\n⚠️ You'll be automatically removed if you don't verify in time\\.",
         escaped_group_name, username_markup, escaped_timeout
     )
 }
@@ -25,6 +25,13 @@ pub fn get_custom_welcome_message(
 
         // First, unescape markdown characters that Telegram escaped
         message = unescape_markdown(&message);
+
+        // Simple approach: just escape the special characters we know cause issues
+        // Escape regular hyphens but not em dashes to avoid visible backslashes
+        message = message.replace("!", "\\!");
+        message = message.replace(".", "\\.");
+        message = message.replace("&", "\\&");
+        message = message.replace("-", "\\-");
 
         // Prepare dynamic, safely escaped replacements
         // username_markup is already MarkdownV2 link entity like
