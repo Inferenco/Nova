@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aptos-labs/gas-station-client": "^2.0.2",
     "@aptos-labs/ts-sdk": "^3.1.0",
     "@aptos-labs/wallet-adapter-core": "^7.1.0",
     "@aptos-labs/wallet-adapter-react": "^7.0.0",
