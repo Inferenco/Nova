@@ -21,6 +21,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
         aptosConnect: {
           dappName: "Nova",
         },
+        transactionSubmitter: aptos?.config?.getTransactionSubmitter(),
       }}
       onError={(error) => {
         console.error("Error in wallet adapter:", error);
