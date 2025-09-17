@@ -329,7 +329,7 @@ pub fn sanitize_ai_html(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_ai_html;
+    use super::{escape_for_markdown_v2, sanitize_ai_html, unescape_markdown};
 
     #[test]
     fn strips_unsupported_tags() {
@@ -356,6 +356,36 @@ mod tests {
         // The href should be dropped and link text preserved
         assert!(!out.to_lowercase().contains("javascript:"));
         assert!(out.contains("click"));
+    }
+
+    #[test]
+    fn unescape_markdown_restores_reserved_characters() {
+        let raw = r"\_\*\[\]\(\)\~\`\>\#\+\-\=\|\{\}\.\!";
+        let expected = "_*[]()~`>#+-=|{}.!";
+
+        assert_eq!(unescape_markdown(raw), expected);
+    }
+
+    #[test]
+    fn roundtrip_preserves_exclamation_in_custom_message() {
+        let stored = r"Welcome to {group_name}, {username}\!";
+        let normalized = unescape_markdown(stored);
+        assert_eq!(normalized, "Welcome to {group_name}, {username}!");
+
+        let username_token = "QKUSERNAME9F2D";
+        let group_token = "QKGROUP9F2D";
+
+        let templated = normalized
+            .replace("{username}", username_token)
+            .replace("{group_name}", group_token);
+
+        let escaped = escape_for_markdown_v2(&templated);
+        let final_text = escaped
+            .replace(username_token, "[@user](tg://user?id=42)")
+            .replace(group_token, "Some Group");
+
+        assert!(final_text.contains(r"\!"));
+        assert!(!final_text.contains(r"\\!"));
     }
 
     #[test]
@@ -405,16 +435,21 @@ pub fn normalize_image_url_anchor(text: &str) -> String {
     re_anchor.replace(text, replacement.as_str()).to_string()
 }
 
-/// Unescape essential markdown characters for welcome messages and filters
+/// Unescape Telegram MarkdownV2 escapes so custom templates stay intact.
 pub fn unescape_markdown(text: &str) -> String {
     let mut result = text.to_string();
 
-    // Unescape essential markdown characters for welcome messages and filters
-    result = result.replace("\\*", "*"); // Bold/italic (very common)
-    result = result.replace("\\_", "_"); // Underline (less common)
-    result = result.replace("\\`", "`"); // Inline code (common for addresses, commands)
-    result = result.replace("\\{", "{"); // Placeholders (essential)
-    result = result.replace("\\}", "}"); // Placeholders (essential)
+    // Telegram escapes every reserved character when returning markdown_text.
+    // Undo those escapes so later formatting can re-apply the minimal ones.
+    const RESERVED: [char; 18] = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+    ];
+
+    for ch in RESERVED {
+        let pattern = format!("\\{}", ch);
+        let replacement = ch.to_string();
+        result = result.replace(&pattern, &replacement);
+    }
 
     result
 }
