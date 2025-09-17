@@ -13,11 +13,11 @@ import { Section, Button } from "@telegram-apps/telegram-ui";
 import { useSearchParams } from "next/navigation";
 import { useActionDelay } from "@/hooks/useActionDelay";
 import { ACCOUNT_SEED } from "@/config/env";
+import { EntryFunctionABI } from "@aptos-labs/ts-sdk";
 
 const LoginPage = () => {
   const { abi } = useAbiClient();
-  const { account } = useWallet();
-  const { client } = useWalletClient();
+  const { account, signAndSubmitTransaction } = useWallet();
   const searchParams = useSearchParams();
   const [resourceAccount, setResourceAccount] = useState<string>("");
   const [txHash, setTxHash] = useState<string>();
@@ -47,9 +47,13 @@ const LoginPage = () => {
         });
 
       if (!resourceAccount?.[0]) {
-        const tx = await client?.useABI(QuarkUserAbi).create_account({
-          type_arguments: [],
-          arguments: [userIdNum.toString()],
+        const tx = await signAndSubmitTransaction({
+          data: {
+            function: `${QuarkUserAbi.address}::${QuarkUserAbi.name}::${QuarkUserAbi.exposed_functions[0].name}`,
+            typeArguments: [],
+            functionArguments: [userIdNum.toString()],
+          },
+          withFeePayer: true,
         });
 
         showMessage(
