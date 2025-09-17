@@ -10,7 +10,7 @@ pub fn get_default_welcome_message(
     let escaped_timeout = escape_for_markdown_v2(&timeout_minutes.to_string());
 
     format!(
-        "👋 Welcome to {}, {}!\n\n🔒 Please verify you're human by clicking the button below within {} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.",
+        "👋 Welcome to {}, {}\\!\n\n🔒 Please verify you're human by clicking the button below within {} minutes\\.\n\n⚠️ You'll be automatically removed if you don't verify in time\\.",
         escaped_group_name, username_markup, escaped_timeout
     )
 }
@@ -33,12 +33,25 @@ pub fn get_custom_welcome_message(
         let timeout_minutes = (settings.verification_timeout / 60).to_string();
         let escaped_timeout = escape_for_markdown_v2(&timeout_minutes);
 
-        // Replace placeholders
-        message = message.replace("{username}", username_markup);
-        message = message.replace("{group_name}", &escaped_group_name);
-        message = message.replace("{timeout}", &escaped_timeout);
+        // Use letter-only marker tokens that survive escaping untouched
+        let username_token = "QKUSERNAME9F2D";
+        let group_token = "QKGROUP9F2D";
+        let timeout_token = "QKTIMEOUT9F2D";
 
-        message
+        // Replace placeholders with tokens
+        message = message.replace("{username}", username_token);
+        message = message.replace("{group_name}", group_token);
+        message = message.replace("{timeout}", timeout_token);
+
+        // Escape the full message content safely for MarkdownV2
+        let mut escaped_message = escape_for_markdown_v2(&message);
+
+        // Swap tokens back to the desired values
+        escaped_message = escaped_message.replace(username_token, username_markup);
+        escaped_message = escaped_message.replace(group_token, &escaped_group_name);
+        escaped_message = escaped_message.replace(timeout_token, &escaped_timeout);
+
+        escaped_message
     } else {
         get_default_welcome_message(
             username_markup,
