@@ -200,7 +200,7 @@ pub async fn handle_message_sentinel(
                 disallowed_items: overrides.disallowed_items,
             }),
             Err(e) => {
-                log::error!("Failed to get moderation settings: {}", e);
+                log::warn!("Failed to get moderation settings: {}", e);
                 None
             }
         };
