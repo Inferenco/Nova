@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     ACCOUNT_SEED: process.env.ACCOUNT_SEED,
     APTOS_NODE_URL: process.env.APTOS_NODE_URL,
     APTOS_INDEXER: process.env.APTOS_INDEXER,
-    APTOS_API_KEY: process.env.GAS_STATION_API_KEY,
+    APTOS_GAS_STATION_API_KEY: process.env.APTOS_GAS_STATION_API_KEY,
   },
 };
 

@@ -1,18 +1,38 @@
 use anyhow::Result as AnyResult;
 use open_ai_rust_responses_by_sshift::Model;
-use teloxide::{prelude::*, sugar::request::RequestReplyExt, types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode}};
+use teloxide::{
+    prelude::*,
+    sugar::request::RequestReplyExt,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
+};
 
-use crate::{ai::moderation::dto::ModerationOverrides, dependencies::BotDependencies, payment::dto::PaymentPrefs, utils::{create_purchase_request, send_scheduled_message}};
+use crate::{
+    ai::moderation::dto::ModerationOverrides,
+    dependencies::BotDependencies,
+    payment::dto::PaymentPrefs,
+    utils::{create_purchase_request, send_scheduled_message},
+};
 
-pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDependencies, chat_id: String) -> AnyResult<bool> {
+pub async fn handle_message_sentinel(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    chat_id: String,
+) -> AnyResult<bool> {
     let thread_id = msg.thread_id;
     let sentinel_on = bot_deps.sentinel.get_sentinel(chat_id.clone());
     if sentinel_on {
         // Skip moderation if there's an active moderation settings wizard
         if let Some(_) = &msg.from {
-            if let Ok(moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.clone()) {
-                if moderation_state.step == "AwaitingAllowed" || moderation_state.step == "AwaitingDisallowed" {
-                    log::info!("Sentinel moderation state is {}, skipping moderation", moderation_state.step);
+            if let Ok(moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.clone())
+            {
+                if moderation_state.step == "AwaitingAllowed"
+                    || moderation_state.step == "AwaitingDisallowed"
+                {
+                    log::info!(
+                        "Sentinel moderation state is {}, skipping moderation",
+                        moderation_state.step
+                    );
                     return Ok(true);
                 }
             }
@@ -29,17 +49,21 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
             if is_admin {
                 // Special case: if group is awaiting file uploads and this is a document-only message,
                 // let it pass through to the group file upload handler instead of stopping here
-                let is_awaiting_files = bot_deps.group_file_upload_state.is_awaiting(chat_id.clone()).await;
-                let is_document_only = msg.document().is_some() && msg.text().is_none() && msg.caption().is_none();
-                
+                let is_awaiting_files = bot_deps
+                    .group_file_upload_state
+                    .is_awaiting(chat_id.clone())
+                    .await;
+                let is_document_only =
+                    msg.document().is_some() && msg.text().is_none() && msg.caption().is_none();
+
                 if is_awaiting_files && is_document_only {
                     return Ok(false); // Let other handlers process this message
                 }
-                
+
                 return Ok(true);
             }
-        } 
-        
+        }
+
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
@@ -48,23 +72,40 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
 
         let group_credentials = group_credentials.unwrap();
 
-        let address = group_credentials.resource_account_address;
+        let address = group_credentials.resource_account_address.clone();
 
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
 
-        let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string(), &bot_deps).await.unwrap_or(PaymentPrefs::from((default_payment_prefs.label, default_payment_prefs.currency, default_payment_prefs.version)));
+        let coin = bot_deps
+            .payment
+            .get_payment_token(msg.chat.id.to_string(), &bot_deps)
+            .await
+            .unwrap_or(PaymentPrefs::from((
+                default_payment_prefs.label,
+                default_payment_prefs.currency,
+                default_payment_prefs.version,
+            )));
 
         let group_balance = bot_deps
-        .panora
-        .aptos
-        .get_account_balance(&address, &coin.currency)
+            .panora
+            .aptos
+            .get_account_balance(&address, &coin.currency)
             .await?;
 
         let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
 
         if token.is_err() {
-            send_scheduled_message(&bot, msg.chat.id,"❌ Token not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
-                .await?;
+            send_scheduled_message(
+                &bot,
+                msg.chat.id,
+                "❌ Token not found, please contact support",
+                if let Some(thread_id) = thread_id {
+                    Some(thread_id.0.0)
+                } else {
+                    None
+                },
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -73,8 +114,17 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         let token_price = token.usd_price;
 
         if token_price.is_none() {
-            send_scheduled_message(&bot, msg.chat.id,"❌ Token price not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
-                .await?;
+            send_scheduled_message(
+                &bot,
+                msg.chat.id,
+                "❌ Token price not found, please contact support",
+                if let Some(thread_id) = thread_id {
+                    Some(thread_id.0.0)
+                } else {
+                    None
+                },
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -83,8 +133,17 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         let token_price = token_price.parse::<f64>();
 
         if token_price.is_err() {
-            send_scheduled_message(&bot, msg.chat.id,"❌ Token price not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
-                .await?;
+            send_scheduled_message(
+                &bot,
+                msg.chat.id,
+                "❌ Token price not found, please contact support",
+                if let Some(thread_id) = thread_id {
+                    Some(thread_id.0.0)
+                } else {
+                    None
+                },
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -109,21 +168,24 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
 
             let text = format!(
                 "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                token.symbol, 
+                token.symbol,
                 address,
                 min_deposit_formatted,
                 token.symbol,
                 group_balance_formatted,
                 token.symbol
             );
-            let request= bot.send_message(msg.chat.id, text);
+            let request = bot.send_message(msg.chat.id, text);
 
             if let Some(thread_id) = thread_id {
-                request.reply_to(thread_id.0).parse_mode(ParseMode::Html).await?;
+                request
+                    .reply_to(thread_id.0)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
             } else {
                 request.parse_mode(ParseMode::Html).await?;
             }
-            
+
             return Ok(true);
         }
 
@@ -156,13 +218,31 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                     result.total_tokens
                 );
 
+                let is_valid = bot_deps.group.verify(msg.chat.id).await;
+
+                if !is_valid {
+                    bot.send_message(msg.chat.id, "❌ Group credentials fails")
+                        .await?;
+                    return Ok(true);
+                }
+
+                let new_credentials = bot_deps.group.get_credentials(msg.chat.id);
+
+                if new_credentials.is_none() {
+                    bot.send_message(msg.chat.id, "❌ Group credentials fails")
+                        .await?;
+                    return Ok(true);
+                };
+
+                let new_credentials = new_credentials.unwrap();
+
                 let purchase_result = create_purchase_request(
                     0,
                     0,
                     0,
                     result.total_tokens,
                     Model::GPT5Nano,
-                    &group_credentials.jwt,
+                    &new_credentials.jwt,
                     Some(msg.chat.id.0.to_string()),
                     None,
                     bot_deps,
@@ -173,7 +253,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                     log::error!("Failed to purchase ai for flagged content: {}", e);
                     return Ok(true);
                 }
-                
+
                 if result.verdict == "F" {
                     // Mute the user
                     if let Some(flagged_user) = &msg.from {
@@ -188,11 +268,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             )
                             .await
                         {
-                            log::error!(
-                                "Failed to mute user {}: {}",
-                                flagged_user.id,
-                                mute_error
-                            );
+                            log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
                         } else {
                             log::info!(
                                 "Successfully muted user {} for flagged content (sentinel)",
@@ -227,29 +303,29 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             user_mention,
                             teloxide::utils::html::escape(message_text)
                         );
-                        let request= bot.send_message(msg.chat.id, text)
-                        .parse_mode(ParseMode::Html)
-                        .reply_markup(keyboard);
+                        let request = bot
+                            .send_message(msg.chat.id, text)
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard);
 
                         if let Some(thread_id) = thread_id {
-                            request.reply_to(thread_id.0).parse_mode(ParseMode::Html).await?;
+                            request
+                                .reply_to(thread_id.0)
+                                .parse_mode(ParseMode::Html)
+                                .await?;
                         } else {
                             request.parse_mode(ParseMode::Html).await?;
                         }
                         // Immediately remove the offending message from the chat
                     }
                     if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
-                        log::warn!(
-                            "Failed to delete offending message {}: {}",
-                            msg.id.0,
-                            e
-                        );
+                        log::warn!("Failed to delete offending message {}: {}", msg.id.0, e);
                     }
                 }
             }
             Err(e) => {
                 log::error!("Sentinel moderation failed: {}", e);
-            }  
+            }
         }
         return Ok(true);
     }

@@ -11,7 +11,7 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::{summarize, build_nav_keyboard_prompt, build_hours_keyboard_with_nav_prompt},
+        helpers::{build_hours_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize},
         runner::{register_all_schedules, register_schedule},
     },
     utils::{
