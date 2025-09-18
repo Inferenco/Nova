@@ -18,6 +18,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     <AptosWalletAdapterProvider
       dappConfig={{
         ...aptos.config,
+        transactionSubmitter: aptos.config.getTransactionSubmitter(),
         aptosConnect: {
           dappName: "Nova",
         },
