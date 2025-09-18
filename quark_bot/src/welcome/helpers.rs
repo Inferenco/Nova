@@ -21,37 +21,19 @@ pub fn get_custom_welcome_message(
     group_name: &str,
 ) -> String {
     if let Some(ref custom_msg) = settings.custom_message {
-        let mut message = custom_msg.clone();
+        let mut message = unescape_markdown(custom_msg);
 
-        // First, unescape markdown characters that Telegram escaped
-        message = unescape_markdown(&message);
-
-        // Prepare dynamic, safely escaped replacements
         // username_markup is already MarkdownV2 link entity like
         // [@username](tg://user?id=123) or [First Name](tg://user?id=123)
         let escaped_group_name = escape_for_markdown_v2(group_name);
         let timeout_minutes = (settings.verification_timeout / 60).to_string();
         let escaped_timeout = escape_for_markdown_v2(&timeout_minutes);
 
-        // Use letter-only marker tokens that survive escaping untouched
-        let username_token = "QKUSERNAME9F2D";
-        let group_token = "QKGROUP9F2D";
-        let timeout_token = "QKTIMEOUT9F2D";
+        message = message.replace("{username}", username_markup);
+        message = message.replace("{group_name}", &escaped_group_name);
+        message = message.replace("{timeout}", &escaped_timeout);
 
-        // Replace placeholders with tokens
-        message = message.replace("{username}", username_token);
-        message = message.replace("{group_name}", group_token);
-        message = message.replace("{timeout}", timeout_token);
-
-        // Escape the full message content safely for MarkdownV2
-        let mut escaped_message = escape_for_markdown_v2(&message);
-
-        // Swap tokens back to the desired values
-        escaped_message = escaped_message.replace(username_token, username_markup);
-        escaped_message = escaped_message.replace(group_token, &escaped_group_name);
-        escaped_message = escaped_message.replace(timeout_token, &escaped_timeout);
-
-        escaped_message
+        message
     } else {
         get_default_welcome_message(
             username_markup,
@@ -77,4 +59,64 @@ pub fn is_verification_expired(timestamp: i64) -> bool {
 
 pub fn get_verification_expiry_time(timeout_seconds: u64) -> i64 {
     chrono::Utc::now().timestamp() + timeout_seconds as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::welcome::dto::WelcomeSettings;
+
+    fn build_settings(message: &str, timeout_seconds: u64) -> WelcomeSettings {
+        WelcomeSettings {
+            enabled: true,
+            custom_message: Some(message.to_string()),
+            verification_timeout: timeout_seconds,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn custom_message_preserves_markdown_formatting() {
+        let template = "Welcome to *{group_name}*, {username}!\n\n1. Connect\n• Enjoy [demo](https://example.com)";
+        let settings = build_settings(template, 600);
+
+        let result = get_custom_welcome_message(
+            &settings,
+            "[@nova](tg://user?id=42)",
+            "Inferenco Inner Circle",
+        );
+
+        let expected = "Welcome to *Inferenco Inner Circle*, [@nova](tg://user?id=42)!\n\n1. Connect\n• Enjoy [demo](https://example.com)";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn custom_message_escapes_dynamic_data_only() {
+        let template = "Hi {username}! Welcome to {group_name}. Timeout: {timeout}";
+        let settings = build_settings(template, 180);
+
+        let result = get_custom_welcome_message(
+            &settings,
+            "[@nova](tg://user?id=42)",
+            "Group (v2)!",
+        );
+
+        let expected = r"Hi [@nova](tg://user?id=42)! Welcome to Group \(v2\)\!. Timeout: 3";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn custom_message_handles_admin_template_with_escaped_chars() {
+        let template = "Welcome to *\\{group_name\\}*, `\\{username\\}`\\!\n\n*Nova — Your smart community manager and personal assistant on Telegram*\nTransparent platform with pay-per-use pricing and reliable service\\.\n\n*How Nova works*\n1\\. Connect with Nova — start a Telegram chat and fund your account with Aptos tokens\\.\n\n2\\. Use AI & community tools — inference, content generation, moderation and automation\\.\n\n3\\. Transparent billing — costs recorded on-chain so you pay only for what you consume\\.\n\n*Key features*\n• 🤖 Automatic bot answers & 🎁 sponsorships — instant help and sponsored access to AI tools\\.\n\nWatch a short demo here: [Nova demo](https://youtu.be/ta0Hx42MHas?si=0rk6l2g2HWS5k2TQ)";
+        let settings = build_settings(template, 600);
+
+        let result = get_custom_welcome_message(
+            &settings,
+            "[@spielrs](tg://user?id=123)",
+            "Inferenco Inner Circle",
+        );
+
+        assert!(result.contains(r"\!"));
+        assert!(result.contains(r"\."));
+    }
 }

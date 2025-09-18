@@ -392,21 +392,27 @@ mod tests {
     }
 
     #[test]
-    fn unescape_markdown_removes_all_standard_escapes() {
+    fn unescape_markdown_unescapes_standard_chars_but_keeps_literal_bang_and_dot() {
         let input = r"\_\*\[\]\(\)\~\`\>\#\+\-\=\|\{\}\.\!";
-        let expected: String = [
-            '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
-        ]
-        .into_iter()
-        .collect();
+        let mut expected = String::from("_*[]()~`>#+-=|{}");
+        expected.push('\\');
+        expected.push('.');
+        expected.push('\\');
+        expected.push('!');
 
         assert_eq!(unescape_markdown(input), expected);
     }
 
     #[test]
+    fn unescape_markdown_allows_image_syntax() {
+        let input = r"\![alt](https://example.com)";
+        assert_eq!(unescape_markdown(input), "![alt](https://example.com)");
+    }
+
+    #[test]
     fn unescape_markdown_preserves_unknown_escapes() {
         let input = r"\%keep\!";
-        assert_eq!(unescape_markdown(input), r"\%keep!");
+        assert_eq!(unescape_markdown(input), r"\%keep\!");
     }
 }
 
@@ -437,7 +443,23 @@ pub fn unescape_markdown(text: &str) -> String {
         if ch == '\\' {
             match chars.next() {
                 Some(next) if MARKDOWN_V2_ESCAPABLE_CHARS.contains(&next) => {
-                    result.push(next);
+                    match next {
+                        '!' => {
+                            // Preserve escape for literal exclamation marks unless part of image syntax
+                            let mut peek_iter = chars.clone();
+                            if matches!(peek_iter.next(), Some('[')) {
+                                result.push('!');
+                            } else {
+                                result.push('\\');
+                                result.push('!');
+                            }
+                        }
+                        '.' => {
+                            result.push('\\');
+                            result.push('.');
+                        }
+                        _ => result.push(next),
+                    }
                 }
                 Some(next) => {
                     result.push('\\');
