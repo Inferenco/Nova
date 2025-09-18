@@ -120,13 +120,13 @@ mod tests {
 
         let result = get_custom_welcome_message(
             &settings,
-            "[@spielrs](tg://user?id=123)",
+            "[@username](tg://user?id=123)",
             "Inferenco Inner Circle",
         );
 
         assert!(result.contains(r"\!"));
         assert!(result.contains(r"\."));
-        assert!(result.contains("[@spielrs](tg://user?id=123)"));
+        assert!(result.contains("[@username](tg://user?id=123)"));
         assert!(!result.contains('`'));
     }
 
