@@ -9,19 +9,18 @@ import { useChain } from "./ChainProvider";
 export const WalletProvider = ({ children }: PropsWithChildren) => {
   const { aptos } = useChain();
 
+  // Don't render until aptos is ready
+  if (!aptos?.config) {
+    return <div>Loading...</div>;
+  }
+
   return (
     <AptosWalletAdapterProvider
       dappConfig={{
-        ...new AptosConfig({
-          network:
-            APTOS_NETWORK === "mainnet" ? Network.MAINNET : Network.TESTNET,
-          fullnode: aptos?.config?.fullnode || APTOS_NODE_URL,
-          indexer: aptos?.config?.indexer || APTOS_INDEXER,
-        }),
+        ...aptos.config,
         aptosConnect: {
           dappName: "Nova",
         },
-        transactionSubmitter: aptos?.config?.getTransactionSubmitter(),
       }}
       onError={(error) => {
         console.error("Error in wallet adapter:", error);

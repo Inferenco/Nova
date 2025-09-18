@@ -108,6 +108,11 @@ export default function WithdrawPage() {
 
       let resourceAccountAddress = AccountAddress.fromString(resourceAccount);
 
+      if (!aptos) {
+        showMessage("Aptos client not found", "error");
+        return;
+      }
+
       const coinsData = await aptos.getAccountCoinsData({
         accountAddress: resourceAccountAddress,
       });
