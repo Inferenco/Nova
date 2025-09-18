@@ -329,7 +329,7 @@ pub fn sanitize_ai_html(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_ai_html;
+    use super::{sanitize_ai_html, unescape_markdown};
 
     #[test]
     fn strips_unsupported_tags() {
@@ -390,6 +390,24 @@ mod tests {
         let out = sanitize_ai_html(input);
         assert!(out.contains("<blockquote>quote</blockquote>"));
     }
+
+    #[test]
+    fn unescape_markdown_removes_all_standard_escapes() {
+        let input = r"\_\*\[\]\(\)\~\`\>\#\+\-\=\|\{\}\.\!";
+        let expected: String = [
+            '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(unescape_markdown(input), expected);
+    }
+
+    #[test]
+    fn unescape_markdown_preserves_unknown_escapes() {
+        let input = r"\%keep\!";
+        assert_eq!(unescape_markdown(input), r"\%keep!");
+    }
 }
 
 pub fn normalize_image_url_anchor(text: &str) -> String {
@@ -405,16 +423,32 @@ pub fn normalize_image_url_anchor(text: &str) -> String {
     re_anchor.replace(text, replacement.as_str()).to_string()
 }
 
+// Full set of MarkdownV2 characters that Telegram escapes
+const MARKDOWN_V2_ESCAPABLE_CHARS: [char; 18] = [
+    '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+];
+
 /// Unescape essential markdown characters for welcome messages and filters
 pub fn unescape_markdown(text: &str) -> String {
-    let mut result = text.to_string();
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
 
-    // Unescape essential markdown characters for welcome messages and filters
-    result = result.replace("\\*", "*"); // Bold/italic (very common)
-    result = result.replace("\\_", "_"); // Underline (less common)
-    result = result.replace("\\`", "`"); // Inline code (common for addresses, commands)
-    result = result.replace("\\{", "{"); // Placeholders (essential)
-    result = result.replace("\\}", "}"); // Placeholders (essential)
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some(next) if MARKDOWN_V2_ESCAPABLE_CHARS.contains(&next) => {
+                    result.push(next);
+                }
+                Some(next) => {
+                    result.push('\\');
+                    result.push(next);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
 
     result
 }
