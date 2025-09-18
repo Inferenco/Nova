@@ -6,11 +6,8 @@ use teloxide::{
 use tokio_cron_scheduler::Job;
 
 use crate::utils::{
-    create_purchase_request,
+    create_purchase_request, markdown_to_html, normalize_image_url_anchor, sanitize_ai_html,
     send_scheduled_message,
-    markdown_to_html,
-    sanitize_ai_html,
-    normalize_image_url_anchor,
 };
 use crate::{
     dependencies::BotDependencies,
@@ -497,6 +494,15 @@ pub async fn register_schedule(
                     }
 
                     // Billing: charge group resource account like /g
+                    let is_valid = bot_deps.group.verify(group_chat_id).await;
+
+                    if !is_valid {
+                        let _ = bot
+                            .send_message(group_chat_id, "❌ Group credentials fails")
+                            .await;
+                        return;
+                    }
+
                     if let Some(group_credentials) = bot_deps.group.get_credentials(group_chat_id) {
                         let (web_search, file_search, image_gen, _) =
                             ai_response.get_tool_usage_counts();

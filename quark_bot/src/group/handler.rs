@@ -5,7 +5,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use quark_core::helpers::jwt::JwtManager;
 use serde_json::Value;
 use sled::Tree;
-use teloxide::types::{ChatId, Message};
+use teloxide::types::ChatId;
 
 use crate::{group::dto::GroupCredentials, panora::handler::Panora};
 
@@ -133,15 +133,8 @@ impl Group {
         response[0]
     }
 
-    pub async fn verify(&self, msg: Message) -> bool {
-        let user = msg.from;
-        let group = msg.chat.id;
-
+    pub async fn verify(&self, group: ChatId) -> bool {
         let group_id = format!("{}-{}", group, self.account_seed);
-
-        if user.is_none() {
-            return false;
-        }
 
         let credentials_opt = self.get_credentials(group);
 

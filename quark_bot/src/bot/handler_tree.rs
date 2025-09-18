@@ -179,7 +179,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
-                            bot_deps.group.verify(msg).await
+                            bot_deps.group.verify(msg.chat.id).await
                         })
                         .endpoint(answers),
                 )
