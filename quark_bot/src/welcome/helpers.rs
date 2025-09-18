@@ -23,6 +23,14 @@ pub fn get_custom_welcome_message(
     if let Some(ref custom_msg) = settings.custom_message {
         let mut message = unescape_markdown(custom_msg);
 
+        // Remove inline code wrappers around placeholders so replacements render correctly
+        for placeholder in ["{username}", "{group_name}", "{timeout}"] {
+            let code_wrapped = format!("`{}`", placeholder);
+            if message.contains(&code_wrapped) {
+                message = message.replace(&code_wrapped, placeholder);
+            }
+        }
+
         // username_markup is already MarkdownV2 link entity like
         // [@username](tg://user?id=123) or [First Name](tg://user?id=123)
         let escaped_group_name = escape_for_markdown_v2(group_name);
@@ -118,5 +126,24 @@ mod tests {
 
         assert!(result.contains(r"\!"));
         assert!(result.contains(r"\."));
+        assert!(result.contains("[@spielrs](tg://user?id=123)"));
+        assert!(!result.contains('`'));
+    }
+
+    #[test]
+    fn custom_message_unwraps_inline_code_placeholders() {
+        let template = "`{username}` joins `{group_name}` in `{timeout}` minutes";
+        let settings = build_settings(template, 600);
+
+        let result = get_custom_welcome_message(
+            &settings,
+            "[@nova](tg://user?id=42)",
+            "Awesome Group",
+        );
+
+        assert_eq!(
+            result,
+            "[@nova](tg://user?id=42) joins Awesome Group in 10 minutes"
+        );
     }
 }
