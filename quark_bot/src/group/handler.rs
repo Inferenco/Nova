@@ -138,15 +138,25 @@ impl Group {
 
         let credentials_opt = self.get_credentials(group);
 
-        if let Some(credentials) = credentials_opt {
+        if let Some(mut credentials) = credentials_opt {
             // Initialize JWT manager and validate/update storage
             match self
                 .jwt_manager
                 .validate_and_update_group_jwt(credentials.jwt, group_id)
             {
-                Ok(_updated_storage) => {
+                Ok(updated_storage) => {
                     // Note: The updated storage with the new JWT would need to be
                     // persisted back to the dialogue storage in the calling code
+
+                    credentials.jwt = updated_storage;
+
+                    let saved = self.save_credentials(credentials);
+
+                    if saved.is_err() {
+                        println!("❌ Failed to save credentials: {}", saved.err().unwrap());
+                        return false;
+                    }
+
                     return true;
                 }
                 Err(e) => {
