@@ -10,7 +10,10 @@ import {
 import { Account, Network } from "@aptos-labs/ts-sdk";
 import { useChain } from "./ChainProvider";
 import { getAptosClient } from "../aptos";
-import { GasStationTransactionSubmitter } from "@aptos-labs/gas-station-client";
+import {
+  GasStationTransactionSubmitter,
+  GasStationClient,
+} from "@aptos-labs/gas-station-client";
 
 type Agent = {
   agent: AgentRuntime;
@@ -24,13 +27,33 @@ export const AgentProvider = ({ children }: { children: React.ReactNode }) => {
   const { aptos } = useChain();
 
   useEffect(() => {
-    if (!aptos) return;
+    if (!aptos?.config) return;
 
     const signer = new WalletSigner({} as Account, wallet);
-    const gasStationTransactionSubmitter = new GasStationTransactionSubmitter({
-      network: APTOS_NETWORK === "mainnet" ? Network.MAINNET : Network.TESTNET,
-      apiKey: APTOS_GAS_STATION_API_KEY,
-    });
+    let gasStationTransactionSubmitter;
+    try {
+      if (!APTOS_GAS_STATION_API_KEY) {
+        gasStationTransactionSubmitter = undefined;
+      } else {
+        const gasStationClient = new GasStationClient({
+          network:
+            APTOS_NETWORK === "mainnet" ? Network.MAINNET : Network.TESTNET,
+          apiKey: APTOS_GAS_STATION_API_KEY,
+        });
+        gasStationTransactionSubmitter = new GasStationTransactionSubmitter(
+          gasStationClient
+        );
+        console.log(
+          "Agent Gas Station Transaction Submitter created successfully"
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Error creating Agent Gas Station Transaction Submitter:",
+        error
+      );
+      gasStationTransactionSubmitter = undefined;
+    }
 
     const aptosConfig = getAptosClient(
       aptos.config.fullnode as string,

@@ -5,7 +5,6 @@ import { useAbiClient } from "@/context/AbiProvider";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { sendData } from "@telegram-apps/sdk-react";
 import { useState } from "react";
-import { useWalletClient } from "@thalalabs/surf/hooks";
 import { AccountStatus } from "./components/AccountStatus";
 import { Message } from "@/components/Message/Message";
 import { useMessage } from "@/hooks/useMessage";
@@ -13,7 +12,6 @@ import { Section, Button } from "@telegram-apps/telegram-ui";
 import { useSearchParams } from "next/navigation";
 import { useActionDelay } from "@/hooks/useActionDelay";
 import { ACCOUNT_SEED } from "@/config/env";
-import { EntryFunctionABI } from "@aptos-labs/ts-sdk";
 
 const LoginPage = () => {
   const { abi } = useAbiClient();

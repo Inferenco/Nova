@@ -8,19 +8,23 @@ import {
   APTOS_NODE_URL,
 } from "../config/env";
 import { createContext, useContext, useEffect, useState } from "react";
-import { GasStationTransactionSubmitter } from "@aptos-labs/gas-station-client";
+import {
+  GasStationTransactionSubmitter,
+  GasStationClient,
+} from "@aptos-labs/gas-station-client";
 
 type ChainProviderContextProp = {
-  aptos: Aptos;
+  aptos: Aptos | null;
   createChainClient: () => void;
 };
 
-const ChainProviderContext = createContext<ChainProviderContextProp>(
-  {} as ChainProviderContextProp
-);
+const ChainProviderContext = createContext<ChainProviderContextProp>({
+  aptos: null,
+  createChainClient: () => {},
+});
 
 export const ChainProvider = ({ children }: { children: React.ReactNode }) => {
-  const [aptos, setAptos] = useState<Aptos>({} as Aptos);
+  const [aptos, setAptos] = useState<Aptos | null>(null);
 
   useEffect(() => {
     createChainClient();
@@ -30,18 +34,36 @@ export const ChainProvider = ({ children }: { children: React.ReactNode }) => {
     const fullnode = APTOS_NODE_URL;
     const indexer = APTOS_INDEXER;
 
-    const gasStationTransactionSubmitter = new GasStationTransactionSubmitter({
-      network: APTOS_NETWORK === "mainnet" ? Network.MAINNET : Network.TESTNET,
-      apiKey: APTOS_GAS_STATION_API_KEY,
-    });
+    let gasStationTransactionSubmitter;
+    try {
+      if (!APTOS_GAS_STATION_API_KEY) {
+        console.warn(
+          "No gas station API key provided, transactions will not be sponsored"
+        );
+        gasStationTransactionSubmitter = undefined;
+      } else {
+        const gasStationClient = new GasStationClient({
+          network:
+            APTOS_NETWORK === "mainnet" ? Network.MAINNET : Network.TESTNET,
+          apiKey: APTOS_GAS_STATION_API_KEY,
+        });
+        gasStationTransactionSubmitter = new GasStationTransactionSubmitter(
+          gasStationClient
+        );
 
-    setAptos(
-      getAptosClient(
-        fullnode as string,
-        indexer as string,
-        gasStationTransactionSubmitter
-      )
+        console.log("Gas Station Transaction Submitter created successfully");
+      }
+    } catch (error) {
+      console.error("Error creating Gas Station Transaction Submitter:", error);
+      gasStationTransactionSubmitter = undefined;
+    }
+
+    const aptosClient = getAptosClient(
+      fullnode as string,
+      indexer as string,
+      gasStationTransactionSubmitter
     );
+    setAptos(aptosClient);
   };
 
   return (

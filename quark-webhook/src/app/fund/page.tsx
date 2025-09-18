@@ -94,6 +94,8 @@ export default function FundPage() {
     try {
       setLoading(true);
 
+      if (!aptos) return;
+
       // Get coins from user's main wallet (not resource account)
       const coinsData = await aptos.getAccountCoinsData({
         accountAddress: account?.address as AccountAddress,
@@ -179,6 +181,11 @@ export default function FundPage() {
       }
 
       const resourceAccountAddress = resourceAccountResponse[0] as string;
+
+      if (!aptos) {
+        showMessage("Aptos client not found", "error");
+        return;
+      }
 
       const transaction = await aptos.transferCoinTransaction({
         sender: account?.address as AccountAddress,

@@ -25,13 +25,13 @@ export default async function RootLayout({ children }: PropsWithChildren) {
     <html lang={locale} suppressHydrationWarning>
       <body>
         <I18nProvider>
-          <WalletProvider>
-            <ChainProvider>
+          <ChainProvider>
+            <WalletProvider>
               <AbiProvider>
                 <Root>{children}</Root>
               </AbiProvider>
-            </ChainProvider>
-          </WalletProvider>
+            </WalletProvider>
+          </ChainProvider>
         </I18nProvider>
       </body>
     </html>
