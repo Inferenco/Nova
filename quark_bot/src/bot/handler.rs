@@ -546,7 +546,6 @@ pub async fn handle_chat(
 
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
-    let profile = env::var("PROFILE").unwrap_or("prod".to_string());
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
             let typing = bot_clone.send_chat_action(msg.chat.id, ChatAction::Typing);
@@ -592,6 +591,15 @@ pub async fn handle_chat(
         typing_indicator_handle.abort();
         send_message(msg, bot, "❌ Unable to verify permissions.".to_string()).await?;
         return Ok(());
+    }
+
+    if group_id.is_some() {
+        let is_valid = bot_deps.group.verify(msg.chat.id).await;
+        if !is_valid {
+            typing_indicator_handle.abort();
+            send_message(msg, bot, "❌ Group credentials fails".to_string()).await?;
+            return Ok(());
+        }
     }
 
     let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
@@ -780,47 +788,45 @@ pub async fn handle_chat(
                 credentials.unwrap().jwt
             };
 
-            if profile != "dev" {
-                let response = create_purchase_request(
-                    file_search,
-                    web_search,
-                    image_gen,
-                    ai_response.total_tokens,
-                    ai_response.model,
-                    &jwt,
-                    group_id,
-                    Some(user_id),
-                    bot_deps.clone(),
-                )
-                .await;
+            let response = create_purchase_request(
+                file_search,
+                web_search,
+                image_gen,
+                ai_response.total_tokens,
+                ai_response.model,
+                &jwt,
+                group_id,
+                Some(user_id),
+                bot_deps.clone(),
+            )
+            .await;
 
-                if response.is_err() {
-                    log::error!(
-                        "Error purchasing tokens: {}",
-                        response.as_ref().err().unwrap()
-                    );
+            if response.is_err() {
+                log::error!(
+                    "Error purchasing tokens: {}",
+                    response.as_ref().err().unwrap()
+                );
 
-                    if response.as_ref().err().unwrap().to_string().contains("401")
-                        || response.as_ref().err().unwrap().to_string().contains("403")
-                    {
-                        send_message(
-                            msg,
-                            bot,
-                            "Your login has expired. Please login again.".to_string(),
-                        )
-                        .await?;
-                    } else {
-                        send_message(
-                            msg,
-                            bot,
-                            "Sorry, I encountered an error while processing your chat request."
-                                .to_string(),
-                        )
-                        .await?;
-                    }
-
-                    return Ok(());
+                if response.as_ref().err().unwrap().to_string().contains("401")
+                    || response.as_ref().err().unwrap().to_string().contains("403")
+                {
+                    send_message(
+                        msg,
+                        bot,
+                        "Your login has expired. Please login again.".to_string(),
+                    )
+                    .await?;
+                } else {
+                    send_message(
+                        msg,
+                        bot,
+                        "Sorry, I encountered an error while processing your chat request."
+                            .to_string(),
+                    )
+                    .await?;
                 }
+
+                return Ok(());
             }
 
             if let Some(image_data) = ai_response.image_data {
