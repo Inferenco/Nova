@@ -169,11 +169,16 @@ pub async fn handle_listscheduled_command(
                 rec.prompt.clone()
             }
         );
-        let kb =
-            InlineKeyboardMarkup::new(vec![vec![teloxide::types::InlineKeyboardButton::callback(
-                "❌ Cancel".to_string(),
+        let kb = InlineKeyboardMarkup::new(vec![vec![
+            teloxide::types::InlineKeyboardButton::callback(
+                "🗑️ Delete".to_string(),
                 format!("sched_cancel:{}", rec.id),
-            )]]);
+            ),
+            teloxide::types::InlineKeyboardButton::callback(
+                "✖️ Close".to_string(),
+                format!("sched_close:{}", rec.id),
+            ),
+        ]]);
         send_markdown_message_with_keyboard(
             bot.clone(),
             msg.clone(),

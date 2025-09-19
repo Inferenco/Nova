@@ -189,6 +189,17 @@ pub async fn handle_scheduled_prompts_callback(
                 );
             }
         }
+    } else if data.starts_with("sched_close") {
+        let id = data.split(':').nth(1).unwrap_or("");
+        bot.answer_callback_query(query.id).await?;
+        if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+            log::warn!(
+                "Failed to close schedule message {} (schedule {}): {}",
+                message.id.0,
+                id,
+                e
+            );
+        }
     } else {
         bot.answer_callback_query(query.id)
             .text("❌ Unknown action")
