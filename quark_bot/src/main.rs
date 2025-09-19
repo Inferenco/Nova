@@ -66,8 +66,6 @@ use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
 
-use tokio_cron_scheduler::JobScheduler;
-
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -154,7 +152,7 @@ async fn main() {
         .expect("Failed to create SummarizationSettings");
     let command_settings = CommandSettingsManager::new(db.clone());
 
-    schedule_jobs(
+    let scheduler = schedule_jobs(
         panora.clone(),
         bot.clone(),
         dao.clone(),
@@ -162,16 +160,6 @@ async fn main() {
     )
     .await
     .expect("Failed to schedule jobs");
-
-    // Initialize a dedicated scheduler for user scheduled prompts
-    let scheduler = JobScheduler::new()
-        .await
-        .expect("Failed to create user scheduled prompts scheduler");
-
-    scheduler
-        .start()
-        .await
-        .expect("Failed to start user scheduled prompts scheduler");
 
     let service = Services::new();
 

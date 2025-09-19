@@ -8,7 +8,7 @@ use anyhow::Result;
 use teloxide::Bot;
 use tokio_cron_scheduler::JobScheduler;
 
-pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, welcome_service: crate::welcome::welcome_service::WelcomeService) -> Result<()> {
+pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, welcome_service: crate::welcome::welcome_service::WelcomeService) -> Result<JobScheduler> {
     log::info!("Initializing job scheduler...");
 
     let scheduler = match JobScheduler::new().await {
@@ -68,5 +68,5 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, welcome_service: 
     }
 
     log::info!("All jobs scheduled successfully");
-    Ok(())
+    Ok(scheduler)
 }
