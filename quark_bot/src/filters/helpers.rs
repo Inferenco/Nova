@@ -3,8 +3,8 @@
 //   "[the contract], ca, contract" -> ["the contract", "ca", "contract"]
 //   "hello, world" -> ["hello", "world"]
 //   "[multi word] , single" -> ["multi word", "single"]
-use crate::filters::dto::{PendingFilterWizardState, MatchType, ResponseType};
-use crate::utils::{unescape_markdown, escape_for_markdown_v2};
+use crate::filters::dto::{MatchType, PendingFilterWizardState, ResponseType};
+use crate::utils::{ensure_markdown_v2_reserved_chars, escape_for_markdown_v2, unescape_markdown};
 
 pub fn parse_triggers(input: &str) -> Vec<String> {
     let mut triggers: Vec<String> = Vec::new();
@@ -140,6 +140,8 @@ pub fn replace_filter_placeholders(
             result = result.replace("{username}", &username_display);
             result = result.replace("{group_name}", &escaped_group_name);
             result = result.replace("{trigger}", &escaped_trigger);
+
+            result = ensure_markdown_v2_reserved_chars(&result);
         },
         ResponseType::Text => {
             // For text responses, just do simple placeholder replacement without any escaping
@@ -168,4 +170,3 @@ pub fn replace_filter_placeholders(
     
     result
 }
-

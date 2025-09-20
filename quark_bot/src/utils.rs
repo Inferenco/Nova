@@ -414,6 +414,7 @@ mod tests {
         let input = r"\%keep\!";
         assert_eq!(unescape_markdown(input), r"\%keep\!");
     }
+
 }
 
 pub fn normalize_image_url_anchor(text: &str) -> String {
@@ -498,6 +499,80 @@ pub fn escape_for_markdown_v2(text: &str) -> String {
     result = result.replace("}", "\\}"); // Code blocks
     result = result.replace(".", "\\."); // Periods (reserved)
     result = result.replace("!", "\\!"); // Exclamation marks (reserved)
+
+    result
+}
+
+/// Ensure commonly problematic MarkdownV2 reserved characters are escaped prior to sending.
+///
+/// This focuses on characters that Telegram frequently reports as errors when left bare in
+/// prose (`.` and `!`), while preserving existing escapes, code blocks, and image syntax.
+pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() + 8);
+    let mut chars = text.chars().peekable();
+    let mut pending_escape = false;
+    let mut active_code_fence: Option<usize> = None;
+
+    while let Some(ch) = chars.next() {
+        if pending_escape {
+            result.push(ch);
+            pending_escape = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            result.push('\\');
+            pending_escape = true;
+            continue;
+        }
+
+        if ch == '`' {
+            // Count how many backticks appear consecutively to handle fenced blocks.
+            let mut run = 1usize;
+            while let Some('`') = chars.peek() {
+                chars.next();
+                run += 1;
+            }
+
+            match active_code_fence {
+                Some(current) if current == run => active_code_fence = None,
+                None => active_code_fence = Some(run),
+                Some(_) => {
+                    // Nested or mismatched fences – retain existing state but still copy ticks.
+                }
+            }
+
+            for _ in 0..run {
+                result.push('`');
+            }
+            continue;
+        }
+
+        let in_code = active_code_fence.is_some();
+
+        if !in_code && ch == '!' {
+            if matches!(chars.peek(), Some('[')) {
+                // Preserve Markdown image/link syntax `![...](...)`.
+                result.push('!');
+            } else {
+                result.push('\\');
+                result.push('!');
+            }
+            continue;
+        }
+
+        if !in_code && ch == '.' {
+            result.push('\\');
+            result.push('.');
+            continue;
+        }
+
+        result.push(ch);
+    }
+
+    if pending_escape {
+        result.push('\\');
+    }
 
     result
 }
