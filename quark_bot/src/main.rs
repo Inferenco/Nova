@@ -48,11 +48,8 @@ use crate::{
     panora::handler::Panora,
     payment::{dto::PaymentPrefs, payment::Payment},
     pending_transactions::handler::PendingTransactions,
-    scheduled_payments::{
-        runner::register_all_schedules as bootstrap_scheduled_payments,
-        storage::ScheduledPaymentsStorage,
-    },
-    scheduled_prompts::{handler::bootstrap_scheduled_prompts, storage::ScheduledStorage},
+    scheduled_payments::storage::ScheduledPaymentsStorage,
+    scheduled_prompts::storage::ScheduledStorage,
     services::handler::Services,
     sponsor::sponsor::Sponsor,
     user_conversation::handler::UserConversations,
@@ -65,6 +62,7 @@ use std::sync::Arc;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
+use tokio_cron_scheduler::JobScheduler;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
@@ -152,14 +150,9 @@ async fn main() {
         .expect("Failed to create SummarizationSettings");
     let command_settings = CommandSettingsManager::new(db.clone());
 
-    let scheduler = schedule_jobs(
-        panora.clone(),
-        bot.clone(),
-        dao.clone(),
-        welcome_service.clone(),
-    )
-    .await
-    .expect("Failed to schedule jobs");
+    let scheduler = JobScheduler::new()
+        .await
+        .expect("Failed to create job scheduler");
 
     let service = Services::new();
 
@@ -269,12 +262,9 @@ async fn main() {
     };
 
     // Bootstrap user-defined schedules (load and register)
-    if let Err(e) = bootstrap_scheduled_prompts(bot.clone(), bot_deps.clone()).await {
-        log::error!("Failed to bootstrap scheduled prompts: {}", e);
-    }
-    if let Err(e) = bootstrap_scheduled_payments(bot.clone(), bot_deps.clone()).await {
-        log::error!("Failed to bootstrap scheduled payments: {}", e);
-    }
+    schedule_jobs(bot.clone(), &bot_deps)
+        .await
+        .expect("Failed to schedule jobs");
 
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
