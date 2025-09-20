@@ -396,6 +396,9 @@ pub async fn register_schedule(
 
             // Append a safety note only to the API input; not shown in Telegram or stored
             let prompt_for_api = format!("{}{}", rec.prompt, SCHEDULED_PROMPT_SUFFIX);
+
+            // Scheduled prompts should always start from a fresh conversation thread
+            rec.conversation_response_id = None;
             let ai_call = bot_deps
                 .ai
                 .generate_response_for_schedule(
@@ -405,7 +408,7 @@ pub async fn register_schedule(
                     None,
                     bot_deps.clone(),
                     rec.group_id.to_string(),
-                    rec.conversation_response_id.clone(),
+                    None,
                     &rec.id,
                     creator_user_id,
                     rec.creator_username.clone(),
@@ -413,7 +416,7 @@ pub async fn register_schedule(
                 .await;
 
             match ai_call {
-                Ok((ai_response, new_resp_id)) => {
+                Ok((ai_response, _new_resp_id)) => {
                     // Send output
                     let text_out = ai_response.text.clone();
                     if let Some(image_data) = ai_response.image_data.clone() {
@@ -531,10 +534,9 @@ pub async fn register_schedule(
                     }
 
                     log::info!(
-                        "[sched:{}] completed; stored new response_id and updated bookkeeping",
+                        "[sched:{}] completed; response delivered without persisting conversation context",
                         schedule_id
                     );
-                    rec.conversation_response_id = Some(new_resp_id);
                 }
                 Err(e) => {
                     log::error!("Scheduled AI error: {}", e);
