@@ -3,7 +3,7 @@ use chrono::Utc;
 use open_ai_rust_responses_by_sshift::Model;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardMarkup, Message, User},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, User},
 };
 use uuid::Uuid;
 
@@ -12,17 +12,13 @@ use crate::{
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
         helpers::{build_hours_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize},
-        runner::{register_all_schedules, register_schedule},
+        runner::register_schedule,
     },
     utils::{
         KeyboardMarkupType, create_purchase_request, send_html_message,
         send_markdown_message_with_keyboard, send_message,
     },
 };
-
-pub async fn bootstrap_scheduled_prompts(bot: Bot, bot_deps: BotDependencies) -> Result<()> {
-    register_all_schedules(bot, bot_deps).await
-}
 
 pub async fn handle_scheduleprompt_command(
     bot: Bot,
@@ -169,11 +165,16 @@ pub async fn handle_listscheduled_command(
                 rec.prompt.clone()
             }
         );
-        let kb =
-            InlineKeyboardMarkup::new(vec![vec![teloxide::types::InlineKeyboardButton::callback(
-                "❌ Cancel".to_string(),
+        let kb = InlineKeyboardMarkup::new(vec![vec![
+            InlineKeyboardButton::callback(
+                "🗑️ Delete".to_string(),
                 format!("sched_cancel:{}", rec.id),
-            )]]);
+            ),
+            InlineKeyboardButton::callback(
+                "✖️ Close".to_string(),
+                format!("sched_close:{}", rec.id),
+            ),
+        ]]);
         send_markdown_message_with_keyboard(
             bot.clone(),
             msg.clone(),

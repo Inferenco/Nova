@@ -22,6 +22,7 @@ use open_ai_rust_responses_by_sshift::{
 use serde_json;
 use teloxide::Bot;
 use teloxide::types::{Message, User};
+use tokio::time::{sleep, Duration};
 
 #[derive(Clone)]
 pub struct AI {
@@ -915,10 +916,10 @@ impl AI {
         if let Some(usage) = &current_response.usage {
             total_tokens_used += usage.total_tokens;
         }
-        // Handle safe custom tool calls in a loop (no Telegram Message required)
+        // Handle safe custom tool calls or in-progress responses in a loop
         let mut iteration = 1usize;
-        const MAX_ITERATIONS: usize = 5;
-        while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
+        const MAX_ITERATIONS: usize = 8;
+        while iteration <= MAX_ITERATIONS {
             let tool_calls = current_response.tool_calls();
             let custom_tool_calls: Vec<_> = tool_calls
                 .iter()
@@ -932,54 +933,100 @@ impl AI {
                 })
                 .collect();
 
-            if custom_tool_calls.is_empty() {
-                break;
+            if !custom_tool_calls.is_empty() {
+                log::info!(
+                    "[schedule] executing {} custom tool calls (iteration {})",
+                    custom_tool_calls.len(),
+                    iteration
+                );
+                let mut function_outputs = Vec::new();
+                for tc in &custom_tool_calls {
+                    let args_value: serde_json::Value =
+                        serde_json::from_str(&tc.arguments).unwrap_or_else(|_| serde_json::json!({}));
+                    let result = match tc.name.as_str() {
+                        "get_current_time" => execute_get_time(&args_value).await,
+                        "get_fear_and_greed_index" => execute_fear_and_greed_index(&args_value).await,
+                        "get_trending_pools" => execute_trending_pools(&args_value).await,
+                        "search_pools" => execute_search_pools(&args_value).await,
+                        "get_new_pools" => execute_new_pools(&args_value).await,
+                        "get_recent_messages" => {
+                            let chat_id_i64: i64 = group_id.parse().unwrap_or(0);
+                            let chat_id = teloxide::types::ChatId(chat_id_i64 as i64);
+                            execute_get_recent_messages_for_chat(chat_id, bot_deps.clone()).await
+                        }
+                        _ => String::new(),
+                    };
+
+                    let final_result = if result.trim().is_empty() {
+                        log::warn!(
+                            "[schedule] tool {} returned empty output; substituting fallback",
+                            tc.name
+                        );
+                        format!("Tool '{}' completed but returned no output", tc.name)
+                    } else {
+                        result
+                    };
+
+                    function_outputs.push((tc.call_id.clone(), final_result));
+                }
+
+                let mut continuation_builder = Request::builder()
+                    .model(model.clone())
+                    .with_function_outputs(current_response.id(), function_outputs)
+                    .tools(tools.clone())
+                    .instructions(self.system_prompt.clone())
+                    .parallel_tool_calls(true)
+                    .max_output_tokens(max_tokens)
+                    .user(&user_label)
+                    .store(true);
+                if let Some(reasoning_params) = reasoning.clone() {
+                    continuation_builder = continuation_builder.reasoning(reasoning_params);
+                }
+
+                current_response = self
+                    .openai_client
+                    .responses
+                    .create(continuation_builder.build())
+                    .await?;
+                if let Some(usage) = &current_response.usage {
+                    total_tokens_used += usage.total_tokens;
+                }
+
+                iteration += 1;
+                continue;
             }
 
-            let mut function_outputs = Vec::new();
-            for tc in &custom_tool_calls {
-                let args_value: serde_json::Value =
-                    serde_json::from_str(&tc.arguments).unwrap_or_else(|_| serde_json::json!({}));
-                let result = match tc.name.as_str() {
-                    "get_current_time" => execute_get_time(&args_value).await,
-                    "get_fear_and_greed_index" => execute_fear_and_greed_index(&args_value).await,
-                    "get_trending_pools" => execute_trending_pools(&args_value).await,
-                    "search_pools" => execute_search_pools(&args_value).await,
-                    "get_new_pools" => execute_new_pools(&args_value).await,
-                    "get_recent_messages" => {
-                        // Use group chat id for schedules
-                        let chat_id_i64: i64 = group_id.parse().unwrap_or(0);
-                        let chat_id = teloxide::types::ChatId(chat_id_i64 as i64);
-                        execute_get_recent_messages_for_chat(chat_id, bot_deps.clone()).await
-                    }
-                    _ => "".to_string(),
-                };
-                function_outputs.push((tc.call_id.clone(), result));
+            if current_response.is_in_progress() {
+                log::debug!(
+                    "[schedule] response {} still in progress (iteration {}); polling for completion",
+                    current_response.id(),
+                    iteration
+                );
+                sleep(Duration::from_millis(300)).await;
+                current_response = self
+                    .openai_client
+                    .responses
+                    .retrieve(current_response.id())
+                    .await?;
+                if let Some(usage) = &current_response.usage {
+                    total_tokens_used = total_tokens_used.max(usage.total_tokens);
+                }
+                iteration += 1;
+                continue;
             }
 
-            let mut continuation_builder = Request::builder()
-                .model(model.clone())
-                .with_function_outputs(current_response.id(), function_outputs)
-                .tools(tools.clone())
-                .instructions(self.system_prompt.clone())
-                .parallel_tool_calls(true)
-                .max_output_tokens(max_tokens)
-                .user(&user_label)
-                .store(true);
-            if let Some(reasoning_params) = reasoning.clone() {
-                continuation_builder = continuation_builder.reasoning(reasoning_params);
-            }
+            break;
+        }
 
-            current_response = self
-                .openai_client
-                .responses
-                .create(continuation_builder.build())
-                .await?;
-            if let Some(usage) = &current_response.usage {
-                total_tokens_used += usage.total_tokens;
-            }
+        if iteration > MAX_ITERATIONS {
+            log::warn!(
+                "[schedule] reached max iterations while waiting for response {}; proceeding with available output",
+                current_response.id()
+            );
+        }
 
-            iteration += 1;
+        if let Some(usage) = &current_response.usage {
+            total_tokens_used = total_tokens_used.max(usage.total_tokens);
         }
 
         let mut reply = current_response.output_text();
