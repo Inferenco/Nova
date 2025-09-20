@@ -506,7 +506,8 @@ pub fn escape_for_markdown_v2(text: &str) -> String {
 /// Ensure commonly problematic MarkdownV2 reserved characters are escaped prior to sending.
 ///
 /// This focuses on characters that Telegram frequently reports as errors when left bare in
-/// prose (`.` and `!`), while preserving existing escapes, code blocks, and image syntax.
+/// prose (`.`, `!`, `-`, and `>`), while preserving existing escapes, code blocks, and image
+/// syntax.
 pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
     let mut result = String::with_capacity(text.len() + 8);
     let mut chars = text.chars().peekable();
@@ -561,9 +562,9 @@ pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
             continue;
         }
 
-        if !in_code && ch == '.' {
+        if !in_code && (ch == '.' || ch == '-' || ch == '>') {
             result.push('\\');
-            result.push('.');
+            result.push(ch);
             continue;
         }
 
