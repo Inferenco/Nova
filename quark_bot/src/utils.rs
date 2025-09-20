@@ -513,10 +513,12 @@ pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
     let mut chars = text.chars().peekable();
     let mut pending_escape = false;
     let mut active_code_fence: Option<usize> = None;
+    let mut at_line_start = true;
 
     while let Some(ch) = chars.next() {
         if pending_escape {
             result.push(ch);
+            at_line_start = ch == '\n';
             pending_escape = false;
             continue;
         }
@@ -524,6 +526,7 @@ pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
         if ch == '\\' {
             result.push('\\');
             pending_escape = true;
+            at_line_start = false;
             continue;
         }
 
@@ -546,6 +549,13 @@ pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
             for _ in 0..run {
                 result.push('`');
             }
+            at_line_start = false;
+            continue;
+        }
+
+        if ch == '\n' {
+            result.push('\n');
+            at_line_start = true;
             continue;
         }
 
@@ -559,16 +569,51 @@ pub fn ensure_markdown_v2_reserved_chars(text: &str) -> String {
                 result.push('\\');
                 result.push('!');
             }
+            at_line_start = false;
             continue;
         }
 
-        if !in_code && (ch == '.' || ch == '-' || ch == '>') {
+        if !in_code && ch == '-' {
+            let next_is_ws = chars
+                .peek()
+                .copied()
+                .map(|c| c == ' ' || (c as u32) == 0x09)
+                .unwrap_or(false);
+            if at_line_start && next_is_ws {
+                result.push('-');
+            } else {
+                result.push('\\');
+                result.push('-');
+            }
+            at_line_start = false;
+            continue;
+        }
+
+        if !in_code && ch == '>' {
+            let next_is_ws = chars
+                .peek()
+                .copied()
+                .map(|c| c == ' ' || (c as u32) == 0x09)
+                .unwrap_or(false);
+            if at_line_start && next_is_ws {
+                result.push('>');
+            } else {
+                result.push('\\');
+                result.push('>');
+            }
+            at_line_start = false;
+            continue;
+        }
+
+        if !in_code && ch == '.' {
             result.push('\\');
             result.push(ch);
+            at_line_start = false;
             continue;
         }
 
         result.push(ch);
+        at_line_start = ch == '\n';
     }
 
     if pending_escape {
