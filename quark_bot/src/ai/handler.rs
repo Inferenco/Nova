@@ -22,7 +22,7 @@ use open_ai_rust_responses_by_sshift::{
 use serde_json;
 use teloxide::Bot;
 use teloxide::types::{Message, User};
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 
 #[derive(Clone)]
 pub struct AI {
@@ -918,7 +918,10 @@ impl AI {
         }
         // Handle safe custom tool calls or in-progress responses in a loop
         let mut iteration = 1usize;
-        const MAX_ITERATIONS: usize = 8;
+        const MAX_ITERATIONS: usize = 100;
+        const POLL_INTERVAL_MS: u64 = 300;
+        const MAX_POLL_DURATION_SECS: u64 = 20;
+        let polling_deadline = Instant::now() + Duration::from_secs(MAX_POLL_DURATION_SECS);
         while iteration <= MAX_ITERATIONS {
             let tool_calls = current_response.tool_calls();
             let custom_tool_calls: Vec<_> = tool_calls
@@ -997,12 +1000,19 @@ impl AI {
             }
 
             if current_response.is_in_progress() {
+                if Instant::now() >= polling_deadline {
+                    log::warn!(
+                        "[schedule] response {} exceeded polling deadline; proceeding with available output",
+                        current_response.id()
+                    );
+                    break;
+                }
                 log::debug!(
                     "[schedule] response {} still in progress (iteration {}); polling for completion",
                     current_response.id(),
                     iteration
                 );
-                sleep(Duration::from_millis(300)).await;
+                sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
                 current_response = self
                     .openai_client
                     .responses
