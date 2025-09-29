@@ -469,6 +469,7 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
         urlencoding::encode(query),
         page
     );
+
     if let Some(net) = network {
         url.push_str(&format!("&network={}", urlencoding::encode(net)));
     }

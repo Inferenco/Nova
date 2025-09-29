@@ -22,7 +22,6 @@ use open_ai_rust_responses_by_sshift::{
 use serde_json;
 use teloxide::Bot;
 use teloxide::types::{Message, User};
-use tokio::time::{sleep, Duration};
 
 #[derive(Clone)]
 pub struct AI {
@@ -919,7 +918,7 @@ impl AI {
         // Handle safe custom tool calls or in-progress responses in a loop
         let mut iteration = 1usize;
         const MAX_ITERATIONS: usize = 8;
-        while iteration <= MAX_ITERATIONS {
+        while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
             let tool_calls = current_response.tool_calls();
             let custom_tool_calls: Vec<_> = tool_calls
                 .iter()
@@ -941,11 +940,13 @@ impl AI {
                 );
                 let mut function_outputs = Vec::new();
                 for tc in &custom_tool_calls {
-                    let args_value: serde_json::Value =
-                        serde_json::from_str(&tc.arguments).unwrap_or_else(|_| serde_json::json!({}));
+                    let args_value: serde_json::Value = serde_json::from_str(&tc.arguments)
+                        .unwrap_or_else(|_| serde_json::json!({}));
                     let result = match tc.name.as_str() {
                         "get_current_time" => execute_get_time(&args_value).await,
-                        "get_fear_and_greed_index" => execute_fear_and_greed_index(&args_value).await,
+                        "get_fear_and_greed_index" => {
+                            execute_fear_and_greed_index(&args_value).await
+                        }
                         "get_trending_pools" => execute_trending_pools(&args_value).await,
                         "search_pools" => execute_search_pools(&args_value).await,
                         "get_new_pools" => execute_new_pools(&args_value).await,
@@ -991,31 +992,11 @@ impl AI {
                 if let Some(usage) = &current_response.usage {
                     total_tokens_used += usage.total_tokens;
                 }
-
-                iteration += 1;
-                continue;
+            } else {
+                break;
             }
 
-            if current_response.is_in_progress() {
-                log::debug!(
-                    "[schedule] response {} still in progress (iteration {}); polling for completion",
-                    current_response.id(),
-                    iteration
-                );
-                sleep(Duration::from_millis(300)).await;
-                current_response = self
-                    .openai_client
-                    .responses
-                    .retrieve(current_response.id())
-                    .await?;
-                if let Some(usage) = &current_response.usage {
-                    total_tokens_used = total_tokens_used.max(usage.total_tokens);
-                }
-                iteration += 1;
-                continue;
-            }
-
-            break;
+            iteration += 1;
         }
 
         if iteration > MAX_ITERATIONS {
@@ -1023,10 +1004,6 @@ impl AI {
                 "[schedule] reached max iterations while waiting for response {}; proceeding with available output",
                 current_response.id()
             );
-        }
-
-        if let Some(usage) = &current_response.usage {
-            total_tokens_used = total_tokens_used.max(usage.total_tokens);
         }
 
         let mut reply = current_response.output_text();
