@@ -395,7 +395,11 @@ pub async fn register_schedule(
             let creator_user_id = rec.creator_user_id;
 
             // Append a safety note only to the API input; not shown in Telegram or stored
-            let prompt_for_api = format!("{}{}", rec.prompt, SCHEDULED_PROMPT_SUFFIX);
+            let prompt_for_api = format!(
+                "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}",
+                rec.prompt,
+                SCHEDULED_PROMPT_SUFFIX
+            );
 
             // Scheduled prompts should always start from a fresh conversation thread
             rec.conversation_response_id = None;
