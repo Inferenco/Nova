@@ -24,7 +24,7 @@ impl Aptos {
             ),
             "devnet" => (
                 AptosClientBuilder::new(AptosNetwork::devnet()),
-                ChainId::Testing,
+                ChainId::Localnet,
             ),
             _ => (
                 AptosClientBuilder::new(AptosNetwork::testnet()),
