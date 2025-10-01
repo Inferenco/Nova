@@ -1,10 +1,44 @@
 # Nova
 
-A next-generation AI-powered Telegram bot ecosystem with blockchain integration, built in Rust and TypeScript. The system combines modern web technologies, AI capabilities, and decentralized finance (DeFi) features on the Aptos blockchain.
+Nova is a sophisticated AI-powered Telegram bot ecosystem with deep blockchain integration on Aptos. Built in Rust and TypeScript, Nova provides advanced group management, AI-driven conversations with tool-calling capabilities, automated payment systems, content moderation, and decentralized governance features. It's designed for communities that need intelligent automation, financial operations, and comprehensive administrative controls.
 
 ## 🏗️ Architecture
 
 For detailed system architecture, component interactions, and data flow, see the [Architecture Documentation](Architecture.md).
+
+## ✨ Key Features
+
+### 🤖 AI & Automation
+- **Advanced Conversational AI**: Context-aware conversations with multiple OpenAI models (GPT-4o, O3, O4-mini)
+- **AI Tool Calling**: Built-in tools for blockchain operations, market data, time queries, and web search
+- **RAG-Enabled**: Separate vector stores for users and groups with document library management
+- **Scheduled Automation**: Automated prompts and payments with flexible scheduling (5m to monthly intervals)
+
+### 👥 Group Management
+- **Content Moderation**: AI-powered content filtering with customizable rules and automatic enforcement
+- **Custom Filters**: Create trigger-response automations with multiple match types and placeholders
+- **Welcome System**: Dynamic member onboarding with personalized messages
+- **Command Controls**: Granular command enable/disable per group
+- **Migration Tools**: Group ID migration support for seamless transitions
+
+### 🏛️ Governance & DAO
+- **Proposal System**: Create and manage DAO proposals with detailed descriptions
+- **Token-Weighted Voting**: Democratic decision-making based on token holdings
+- **Automated Notifications**: Active proposal reminders and results announcements
+- **Flexible Voting Periods**: Configurable start/end times for proposals
+
+### 💰 Blockchain & Payments
+- **Aptos Integration**: Native smart contract integration for users and groups
+- **Multi-Token Support**: APT, USDC, USDT, and other Aptos tokens
+- **Automated Payments**: Scheduled recurring payments to users or addresses
+- **Group Wallets**: Shared group accounts with automatic resource management
+- **Payment Tracking**: Balance queries, transaction history, and preferences
+
+### 📊 Data & Analytics
+- **Conversation Summarization**: Automatic summary generation for long discussions
+- **Filter Statistics**: Usage tracking for custom triggers
+- **DAO Analytics**: Proposal status tracking and voting results
+- **Market Data**: Integration with GeckoTerminal and Panora for real-time crypto data
 
 ## 📋 Prerequisites
 
@@ -167,11 +201,33 @@ quark-reborn/
 
 ### quark_bot (Telegram Bot)
 
-**Features:**
-- AI-powered conversations with OpenAI
-- Group management and wallet integration
-- Payment processing and token management
-- Media handling and asset collection
+**Core Features:**
+- **Advanced AI Conversations**: Context-aware AI with OpenAI integration, support for multiple models (GPT-4o, O3, O4-mini, etc.)
+- **AI Tool Calling**: Built-in tools for balance queries, withdrawals, trending pools, time, Fear & Greed index, recent messages, and web search
+- **Vector Stores**: Separate user and group document libraries with RAG (Retrieval-Augmented Generation) for context-aware responses
+
+**Group Management Tools:**
+- **Payment Automation**: Scheduled token payments with flexible intervals (5m to monthly), group wallet management
+- **Content Moderation**: AI-powered sentinel with customizable allowed/disallowed rules, automatic muting, admin reporting
+- **Custom Filters**: Trigger-response system with exact/contains/starts/ends matching, placeholder support, usage statistics
+- **Document Library**: Group-specific vector stores for knowledge base management
+- **DAO Governance**: Create proposals, voting systems with token-weighted votes, automated notifications
+- **Welcome Messages**: Customizable member onboarding with dynamic placeholders
+- **Command Settings**: Enable/disable specific commands per group
+- **Summarization**: Automatic conversation summaries for context retention
+- **Sponsor Settings**: Configure sponsorship and promotional features
+
+**Payment & Blockchain:**
+- Individual and group wallet management on Aptos
+- Multi-token support (APT, USDC, USDT, etc.) with automatic token list updates
+- Balance checking, withdrawals, and fund transfers
+- Scheduled recurring payments with multiple cadences
+- Payment preferences per user/group
+
+**Automation:**
+- **Scheduled Prompts**: Automated AI-generated messages with flexible timing (every 5m to monthly)
+- **Scheduled Payments**: Recurring token transfers to users or addresses
+- Safety validation for scheduled operations
 
 **Run Locally:**
 ```bash

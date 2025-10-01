@@ -1,8 +1,8 @@
-# Quark Reborn Architecture Documentation
+# Nova Architecture Documentation
 
 ## System Overview
 
-**Quark Reborn** is a sophisticated AI-powered Telegram bot ecosystem with blockchain integration, designed to provide users with intelligent assistance while managing payments and transactions on the Aptos blockchain. The system combines modern web technologies, AI capabilities, and decentralized finance (DeFi) features in a seamless user experience.
+**Nova** (previously called Quark AI) is a sophisticated AI-powered Telegram bot ecosystem with deep blockchain integration on Aptos. Designed for communities and individual users, Nova provides intelligent conversational AI, comprehensive group management tools, automated payment systems, content moderation, DAO governance, and decentralized finance (DeFi) capabilities. The system is built for scale, all integrated with the Aptos blockchain for transparent financial operations.
 
 ## Core Architecture
 
@@ -101,21 +101,38 @@ graph TB
 **Primary Function**: Main Telegram bot handling user interactions and AI-powered conversations.
 
 **Key Modules**:
-- `ai/` - AI conversation handling, OpenAI integration, vector store management
+- `ai/` - AI conversation handling, OpenAI integration, vector stores, moderation, summarization
 - `bot/` - Core bot handlers, command processing, user authentication
 - `assets/` - Media handling and command image collection
 - `callbacks.rs` - Telegram callback query handling
-- `middleware/` - Authentication and request processing middleware
-- `panora/` - Exchange data integration
-- `user_conversation/` - Conversation state management
-- `user_model_preferences/` - User AI model preference management
+- `dao/` - DAO proposal creation, voting, and governance
+- `filters/` - Custom trigger-response filters with match types
+- `group/` - Group credentials, document library, vector store management
+- `payment/` - Payment preferences, balance queries, transfers
+- `scheduled_payments/` - Recurring automated payments
+- `scheduled_prompts/` - Automated AI-generated messages
+- `welcome/` - Member onboarding and welcome messages
+- `command_settings/` - Per-group command enable/disable
+- `summarization_settings/` - Conversation summary configuration
+- `user_conversation/` - Conversation state and history
+- `user_model_preferences/` - AI model selection and preferences
 
 **Key Features**:
-- **AI Conversations**: Advanced AI chat with context awareness
-- **Group Management**: Group login, wallet management, and administration
-- **Payment Processing**: Token payments, balance checking, and transaction handling
-- **Asset Management**: Image collection and media processing
-- **Cron Jobs**: Automated token list updates (hourly) and fee calculations
+- **Advanced AI Conversations**: Context-aware AI with multiple models, tool calling, web search, image generation
+- **Group Management Suite**: 
+  - Content moderation with AI-powered sentinel
+  - Custom filters with trigger-response automation
+  - Document library with RAG capabilities (separate user/group vector stores)
+  - Welcome message customization
+  - Command enable/disable controls
+  - Group ID migration tools
+- **DAO Governance**: Proposal creation, token-weighted voting, automated notifications
+- **Payment & Blockchain**: Individual and group wallets, multi-token support, balance queries, transfers
+- **Automation**: Scheduled prompts (5m to monthly), scheduled payments with flexible cadences
+- **Asset Management**: Media handling, image upload to Google Cloud Storage
+- **Summarization**: Automatic conversation summaries for context retention
+- **Market Data**: Real-time crypto data from GeckoTerminal and Panora Exchange
+- **Cron Jobs**: Automated token list updates, DAO notifications, scheduled task execution
 
 **Database**: Embedded Sled database for user data, conversations, and credentials
 
