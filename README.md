@@ -202,7 +202,7 @@ quark-reborn/
 ### quark_bot (Telegram Bot)
 
 **Core Features:**
-- **Advanced AI Conversations**: Context-aware AI with OpenAI integration, support for multiple models (GPT-4o, O3, O4-mini, etc.)
+- **Advanced AI Conversations**: Context-aware AI with OpenAI integration, support for the newest models (GPT-5, GPT-5-mini)
 - **AI Tool Calling**: Built-in tools for balance queries, withdrawals, trending pools, time, Fear & Greed index, recent messages, and web search
 - **Vector Stores**: Separate user and group document libraries with RAG (Retrieval-Augmented Generation) for context-aware responses
 
