@@ -9,7 +9,7 @@ For detailed system architecture, component interactions, and data flow, see the
 ## ✨ Key Features
 
 ### 🤖 AI & Automation
-- **Advanced Conversational AI**: Context-aware conversations with multiple OpenAI models (GPT-4o, O3, O4-mini)
+- **Advanced Conversational AI**: Context-aware conversations with multiple OpenAI models (GPT-5, GPT-5-mini)
 - **AI Tool Calling**: Built-in tools for blockchain operations, market data, time queries, and web search
 - **RAG-Enabled**: Separate vector stores for users and groups with document library management
 - **Scheduled Automation**: Automated prompts and payments with flexible scheduling (5m to monthly intervals)
