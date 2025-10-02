@@ -144,6 +144,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::LoginGroup
                                     | Command::AptosConnect
                                     | Command::Prices
+                                    | Command::Tutorial
                             )
                         })
                         .endpoint(answers),
