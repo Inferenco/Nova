@@ -207,6 +207,7 @@ async fn main() {
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
         BotCommand::new("prices", "Display model pricing information."),
+        BotCommand::new("tutorial", "Watch the quick start tutorial video."),
         BotCommand::new(
             "globalannouncement",
             "Send a global announcement (authorized only).",

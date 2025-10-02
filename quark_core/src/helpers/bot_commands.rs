@@ -41,6 +41,8 @@ pub enum Command {
     GroupBalance(String),
     #[command(description = "Display model pricing information.")]
     Prices,
+    #[command(description = "Watch a short tutorial video.")]
+    Tutorial,
     #[command(
         description = "Send a global announcement (authorized only).",
         rename = "globalannouncement"

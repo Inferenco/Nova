@@ -44,6 +44,14 @@ pub async fn answers(
             }
         }
         Command::Prices => handle_prices(bot, msg).await?,
+        Command::Tutorial => {
+            send_message(
+                msg,
+                bot,
+                "https://youtu.be/QAXWWXpzH-Q?si=Gslz7yS9l6BqC02E".to_string(),
+            )
+            .await?;
+        }
         Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg, bot_deps.clone()).await?,
         Command::NewChat => handle_new_chat(bot, msg, bot_deps.clone()).await?,
