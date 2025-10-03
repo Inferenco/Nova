@@ -139,7 +139,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::Help
+                                Command::Start
+                                    | Command::Help
                                     | Command::LoginUser
                                     | Command::LoginGroup
                                     | Command::AptosConnect

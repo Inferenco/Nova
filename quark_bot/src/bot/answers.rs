@@ -8,7 +8,7 @@ use teloxide::{
 
 use super::handler::{
     handle_chat, handle_help, handle_login_group, handle_login_user, handle_mod, handle_new_chat,
-    handle_prices, handle_rules,
+    handle_prices, handle_rules, handle_start,
 };
 use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
 use crate::yield_ai::handler as yield_ai_handler;
@@ -33,6 +33,7 @@ pub async fn answers(
     bot_deps: BotDependencies,
 ) -> Result<()> {
     match cmd {
+        Command::Start => handle_start(bot, msg).await?,
         Command::AptosConnect => handle_aptos_connect(bot, msg).await?,
         Command::Help => handle_help(bot, msg).await?,
         Command::WalletAddress => handle_wallet_address(bot, msg, bot_deps.clone()).await?,

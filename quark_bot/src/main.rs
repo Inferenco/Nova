@@ -168,6 +168,7 @@ async fn main() {
     ));
 
     let commands = vec![
+        BotCommand::new("start", "Start interacting with the bot."),
         BotCommand::new("aptosconnect", "Open the Aptos Connect app."),
         BotCommand::new("help", "Display this text."),
         BotCommand::new("loginuser", "Log in as a user (DM only)."),
