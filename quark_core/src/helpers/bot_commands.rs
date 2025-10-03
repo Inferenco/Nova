@@ -6,6 +6,8 @@ use teloxide::utils::command::BotCommands;
     description = "These commands are supported:"
 )]
 pub enum Command {
+    #[command(description = "Start interacting with the bot.")]
+    Start,
     #[command(description = "Open the Aptos Connect app.")]
     AptosConnect,
     #[command(description = "Log in as a user (DM only).", parse_with = "split")]

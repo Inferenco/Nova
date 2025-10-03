@@ -522,6 +522,18 @@ pub async fn handle_login_group(
     Ok(())
 }
 
+pub async fn handle_start(bot: Bot, msg: Message) -> AnyResult<()> {
+    let welcome_text = "👋 <b>Welcome to Nova!</b>\n\n\
+        Nova is a smart Telegram community management platform combining AI-powered tools with blockchain transparency.\n\n\
+        🚀 <b>To get started:</b>\n\
+        • Use /loginuser to authenticate and start using Nova\n\
+        • Check out our quick tutorial: https://youtu.be/QAXWWXpzH-Q?si=Gslz7yS9l6BqC02E\n\n\
+        💡 <i>Need help? Use /help to see all available commands.</i>";
+    
+    send_html_message(msg, bot, welcome_text.to_string()).await?;
+    Ok(())
+}
+
 pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
     send_message(msg, bot, Command::descriptions().to_string()).await?;
     Ok(())
