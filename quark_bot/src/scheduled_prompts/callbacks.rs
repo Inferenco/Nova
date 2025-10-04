@@ -7,6 +7,7 @@ use crate::{
     scheduled_prompts::handler::finalize_and_register,
     scheduled_prompts::helpers::{
         build_hours_keyboard_with_nav_prompt,
+        build_image_keyboard_with_nav_prompt,
         build_minutes_keyboard_with_nav_prompt,
         build_repeat_keyboard_with_nav_prompt,
         build_nav_keyboard_prompt,
@@ -49,7 +50,8 @@ pub async fn handle_scheduled_prompts_callback(
                 PendingStep::AwaitingConfirm => Some(PendingStep::AwaitingRepeat),
                 PendingStep::AwaitingRepeat => Some(PendingStep::AwaitingMinute),
                 PendingStep::AwaitingMinute => Some(PendingStep::AwaitingHour),
-                PendingStep::AwaitingHour => Some(PendingStep::AwaitingPrompt),
+                PendingStep::AwaitingHour => Some(PendingStep::AwaitingImage),
+                PendingStep::AwaitingImage => Some(PendingStep::AwaitingPrompt),
                 PendingStep::AwaitingPrompt => None,
             };
             if let Some(prev_step) = prev {
@@ -61,6 +63,12 @@ pub async fn handle_scheduled_prompts_callback(
                     PendingStep::AwaitingPrompt => {
                         let kb = build_nav_keyboard_prompt(false);
                         bot.edit_message_text(message.chat.id, message.id, "📝 Send the prompt you want to schedule — you can reply to this message or just send it as your next message.")
+                            .reply_markup(kb)
+                            .await?;
+                    }
+                    PendingStep::AwaitingImage => {
+                        let kb = build_image_keyboard_with_nav_prompt(true);
+                        bot.edit_message_text(message.chat.id, message.id, "📷 Attach an image to use with this scheduled prompt (optional)\n\nSend a photo, or click Skip Image to continue.")
                             .reply_markup(kb)
                             .await?;
                     }
@@ -100,6 +108,16 @@ pub async fn handle_scheduled_prompts_callback(
             }
         } else {
             bot.answer_callback_query(query.id).text("ℹ️ No pending schedule to cancel").await?;
+        }
+    } else if data == "sched_skip_image" {
+        if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            st.step = PendingStep::AwaitingHour;
+            st.image_url = None;
+            bot_deps.scheduled_storage.put_pending(key, &st)?;
+            bot.answer_callback_query(query.id).await?;
+            bot.edit_message_text(message.chat.id, message.id, "Select start hour (UTC)")
+                .reply_markup(build_hours_keyboard_with_nav_prompt(true))
+                .await?;
         }
     } else if data.starts_with("sched_hour:") {
         let hour: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);

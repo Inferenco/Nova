@@ -24,6 +24,7 @@ pub struct ScheduledPromptRecord {
     pub creator_user_id: i64,
     pub creator_username: String,
     pub prompt: String,
+    pub image_url: Option<String>,
     pub start_hour_utc: u8,
     pub start_minute_utc: u8,
     pub repeat: RepeatPolicy,
@@ -41,6 +42,7 @@ pub struct ScheduledPromptRecord {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub enum PendingStep {
     AwaitingPrompt,
+    AwaitingImage,
     AwaitingHour,
     AwaitingMinute,
     AwaitingRepeat,
@@ -54,6 +56,7 @@ pub struct PendingWizardState {
     pub creator_username: String,
     pub step: PendingStep,
     pub prompt: Option<String>,
+    pub image_url: Option<String>,
     pub hour_utc: Option<u8>,
     pub minute_utc: Option<u8>,
     pub repeat: Option<RepeatPolicy>,

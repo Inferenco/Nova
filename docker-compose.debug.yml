@@ -70,19 +70,20 @@ services:
       - seccomp:unconfined
 
   valkey:
-    image: bitnami/valkey:latest
-    environment:
-      - ALLOW_EMPTY_PASSWORD=no
-      - VALKEY_PASSWORD=${VALKEY_PASSWORD}
-      - VALKEY_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    image: valkey/valkey:8.0
+    command: >
+      valkey-server 
+      --requirepass ${VALKEY_PASSWORD}
+      --rename-command FLUSHDB ""
+      --rename-command FLUSHALL ""
     ports:
       - '6379:6379'
     volumes:
-      - 'valkey_data:/app/valkey_data'
+      - 'valkey_data:/data'
     networks:
       - quark-net
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
