@@ -395,6 +395,11 @@ pub async fn register_schedule(
             let creator_user_id = rec.creator_user_id;
 
             // Append a safety note only to the API input; not shown in Telegram or stored
+            // NOTE: The scheduled prompt image is meant to be displayed alongside the
+            // response for branding purposes. We intentionally avoid attaching the
+            // image as a vision payload for the AI request because the prompt text may
+            // be unrelated, and forcing the model to interpret the image can reduce
+            // answer quality.
             let image_context = if let Some(ref img_url) = rec.image_url {
                 format!("\n\nYou have an image available at: {}\nUse this image as context for your response.", img_url)
             } else {
