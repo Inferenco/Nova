@@ -4,14 +4,16 @@ use open_ai_rust_responses_by_sshift::Model;
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, User},
+    net::Download,
 };
+use tokio::fs::File;
 use uuid::Uuid;
 
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::{build_hours_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize},
+        helpers::{build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize},
         runner::register_schedule,
     },
     utils::{
@@ -72,6 +74,7 @@ pub async fn handle_scheduleprompt_command(
         creator_username: username,
         step: PendingStep::AwaitingPrompt,
         prompt: None,
+        image_url: None,
         hour_utc: None,
         minute_utc: None,
         repeat: None,
@@ -215,6 +218,7 @@ pub async fn finalize_and_register(
         creator_user_id: state.creator_user_id,
         creator_username: state.creator_username.clone(),
         prompt: state.prompt.clone().unwrap_or_default(),
+        image_url: state.image_url.clone(),
         start_hour_utc: state.hour_utc.unwrap_or(0),
         start_minute_utc: state.minute_utc.unwrap_or(0),
         repeat: state.repeat.clone().unwrap_or(RepeatPolicy::None),
@@ -244,6 +248,7 @@ pub async fn finalize_and_register(
                 creator_username: rec.creator_username,
                 step: PendingStep::AwaitingConfirm,
                 prompt: Some(rec.prompt),
+                image_url: rec.image_url,
                 hour_utc: Some(rec.start_hour_utc),
                 minute_utc: Some(rec.start_minute_utc),
                 repeat: Some(rec.repeat),
@@ -317,7 +322,7 @@ pub async fn handle_message_scheduled_prompts(
                 }
 
                 st.prompt = Some(text);
-                st.step = PendingStep::AwaitingHour;
+                st.step = PendingStep::AwaitingImage;
                 if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
                     log::error!("Failed to persist scheduled wizard state: {}", e);
                     send_message(
@@ -329,15 +334,85 @@ pub async fn handle_message_scheduled_prompts(
                     .await?;
                     return Ok(true);
                 }
-                let kb = build_hours_keyboard_with_nav_prompt(true);
+                let kb = build_image_keyboard_with_nav_prompt(true);
                 send_markdown_message_with_keyboard(
                     bot,
                     msg,
                     KeyboardMarkupType::InlineKeyboardType(kb),
-                    "Select start hour (UTC)",
+                    "📷 Attach an image to use with this scheduled prompt (optional)\n\nSend a photo, or click Skip Image to continue.",
                 )
                 .await?;
                 return Ok(true);
+            }
+        } else if st.step == PendingStep::AwaitingImage {
+            // Handle image upload
+            if let Some(photo_sizes) = msg.photo() {
+                if let Some(largest_photo) = photo_sizes.last() {
+                    let user_id = user.id.0 as i64;
+                    // Download the image to temp file
+                    let file_info = bot.get_file(largest_photo.file.id.clone()).await?;
+                    let extension = file_info
+                        .path
+                        .split('.')
+                        .last()
+                        .unwrap_or("jpg")
+                        .to_string();
+                    let temp_path = format!("/tmp/sched_{}_{}.{}", user_id, largest_photo.file.unique_id, extension);
+                    let mut file = File::create(&temp_path)
+                        .await
+                        .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                    bot.download_file(&file_info.path, &mut file)
+                        .await
+                        .map_err(|e| teloxide::RequestError::from(e))?;
+                    
+                    // Upload to GCS using AI handler
+                    match bot_deps.ai.upload_user_images(vec![(temp_path, extension)]).await {
+                        Ok(urls) if !urls.is_empty() => {
+                            st.image_url = Some(urls[0].clone());
+                            st.step = PendingStep::AwaitingHour;
+                            if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                                log::error!("Failed to persist scheduled wizard state: {}", e);
+                                send_message(
+                                    msg.clone(),
+                                    bot,
+                                    "❌ Error saving schedule state. Please try /scheduleprompt again."
+                                        .to_string(),
+                                )
+                                .await?;
+                                return Ok(true);
+                            }
+                            let kb = build_hours_keyboard_with_nav_prompt(true);
+                            send_markdown_message_with_keyboard(
+                                bot,
+                                msg,
+                                KeyboardMarkupType::InlineKeyboardType(kb),
+                                "✅ Image uploaded! Now select start hour (UTC)",
+                            )
+                            .await?;
+                            return Ok(true);
+                        }
+                        Ok(_) => {
+                            log::error!("Image upload returned empty URLs");
+                            send_message(
+                                msg.clone(),
+                                bot,
+                                "❌ Failed to upload image. Please try again or click Skip Image.".to_string(),
+                            )
+                            .await?;
+                            return Ok(true);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to upload image to GCS: {}", e);
+                            send_message(
+                                msg.clone(),
+                                bot,
+                                "❌ Failed to upload image. Please try again or click Skip Image.".to_string(),
+                            )
+                            .await?;
+                            return Ok(true);
+                        }
+                    }
+                }
             }
         }
     }
