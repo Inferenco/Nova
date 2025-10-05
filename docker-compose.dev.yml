@@ -80,7 +80,7 @@ services:
       - quark-net
 
   valkey:
-    image: valkey/valkey:8.0
+    image: valkey/valkey:latest
     command: >
       valkey-server 
       --requirepass ${VALKEY_PASSWORD}

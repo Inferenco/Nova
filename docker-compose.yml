@@ -78,7 +78,7 @@ services:
       - quark-net
 
   valkey:
-    image: valkey/valkey:8.0
+    image: valkey/valkey:latest
     command: >
       valkey-server 
       --requirepass ${VALKEY_PASSWORD}
@@ -87,7 +87,7 @@ services:
     ports:
       - '6379:6379'
     volumes:
-      - 'valkey_data:/data'
+      - 'valkey_data:/bitnami/valkey/data'
     networks:
       - quark-net
     healthcheck:
