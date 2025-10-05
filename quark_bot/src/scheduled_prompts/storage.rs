@@ -55,8 +55,14 @@ impl ScheduledStorage {
                 ) {
                     if rec.group_id == group_id && rec.active {
                         out.push(rec);
+                    } else {
+                        log::error!("Scheduled prompt is not active: {:?}", rec);
                     }
+                } else {
+                    log::error!("Error decoding scheduled prompt: {:?}", ivec);
                 }
+            } else {
+                log::error!("Error getting scheduled prompt: {:?}", kv);
             }
         }
         out
