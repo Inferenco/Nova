@@ -128,10 +128,10 @@ impl ScheduledStorage {
                 let rec_string =
                     bincode::decode_from_slice::<String, _>(&ivec, bincode::config::standard());
 
-                let id = bincode::decode_from_slice::<String, _>(&k, bincode::config::standard());
+                let id = serde_json::from_slice::<String>(&k);
 
                 if let Ok(id) = id {
-                    log::info!("id: {}", id.0);
+                    log::info!("id: {}", id);
                 } else {
                     log::error!("Error decoding scheduled prompt id: {:?}", id.err());
                 };
