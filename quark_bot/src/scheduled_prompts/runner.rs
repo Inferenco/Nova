@@ -232,6 +232,7 @@ pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyh
             if let Ok((key, _)) = item {
                 String::from_utf8(key.to_vec()).ok()
             } else {
+                log::error!("Failed to get schedule ID from iterator {:?}", item.err());
                 None
             }
         })
@@ -409,15 +410,16 @@ pub async fn register_schedule(
             // be unrelated, and forcing the model to interpret the image can reduce
             // answer quality.
             let image_context = if let Some(ref img_url) = rec.image_url {
-                format!("\n\nYou have an image available at: {}\nUse this image as context for your response.", img_url)
+                format!(
+                    "\n\nYou have an image available at: {}\nUse this image as context for your response.",
+                    img_url
+                )
             } else {
                 String::new()
             };
             let prompt_for_api = format!(
                 "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}{}",
-                rec.prompt,
-                image_context,
-                SCHEDULED_PROMPT_SUFFIX
+                rec.prompt, image_context, SCHEDULED_PROMPT_SUFFIX
             );
 
             // Scheduled prompts should always start from a fresh conversation thread
@@ -442,22 +444,26 @@ pub async fn register_schedule(
                 Ok((ai_response, _new_resp_id)) => {
                     // Send output
                     let text_out = ai_response.text.clone();
-                    
+
                     // Check if there's a scheduled image to send
                     if let Some(ref image_url) = rec.image_url {
                         // Send scheduled image with AI response
                         let photo = teloxide::types::InputFile::url(
-                            reqwest::Url::parse(image_url)
-                                .unwrap_or_else(|_| reqwest::Url::parse("https://placeholder.com").unwrap())
+                            reqwest::Url::parse(image_url).unwrap_or_else(|_| {
+                                reqwest::Url::parse("https://placeholder.com").unwrap()
+                            }),
                         );
-                        
+
                         if text_out.len() <= 1024 && !text_out.trim().is_empty() {
                             // Fits in caption
                             let caption = crate::utils::sanitize_ai_html(&text_out);
-                            let mut req = bot.send_photo(group_chat_id, photo).caption(caption).parse_mode(ParseMode::Html);
+                            let mut req = bot
+                                .send_photo(group_chat_id, photo)
+                                .caption(caption)
+                                .parse_mode(ParseMode::Html);
                             if let Some(tid) = rec.thread_id {
                                 req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid)
+                                    teloxide::types::MessageId(tid),
                                 ));
                             }
                             match req.await {
@@ -479,7 +485,7 @@ pub async fn register_schedule(
                             let mut req = bot.send_photo(group_chat_id, photo);
                             if let Some(tid) = rec.thread_id {
                                 req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid)
+                                    teloxide::types::MessageId(tid),
                                 ));
                             }
                             match req.await {
@@ -501,7 +507,7 @@ pub async fn register_schedule(
                             let mut req = bot.send_photo(group_chat_id, photo);
                             if let Some(tid) = rec.thread_id {
                                 req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid)
+                                    teloxide::types::MessageId(tid),
                                 ));
                             }
                             match req.await {
@@ -518,8 +524,10 @@ pub async fn register_schedule(
                                     e
                                 ),
                             }
-                            
-                            let chunks = send_long_message(&bot, group_chat_id, &text_out, rec.thread_id).await;
+
+                            let chunks =
+                                send_long_message(&bot, group_chat_id, &text_out, rec.thread_id)
+                                    .await;
                             log::info!(
                                 "[sched:{}] sent text chunks={} total_len={} to chat {}",
                                 schedule_id,
