@@ -5,6 +5,11 @@ use crate::scheduled_prompts::dto::{PendingStep, PendingWizardState, RepeatPolic
 
 pub fn summarize(state: &PendingWizardState) -> String {
     let prompt = state.prompt.as_deref().unwrap_or("");
+    let image_info = if let Some(url) = &state.image_url {
+        format!("\n\n📷 Image: <a href=\"{}\">View Image</a>", url)
+    } else {
+        String::new()
+    };
     let hour = state.hour_utc.map(|h| format!("{:02}", h)).unwrap_or("--".into());
     let minute = state.minute_utc.map(|m| format!("{:02}", m)).unwrap_or("--".into());
     let repeat = match state.repeat {
@@ -23,8 +28,8 @@ pub fn summarize(state: &PendingWizardState) -> String {
         None => "--".to_string(),
     };
     format!(
-        "🗓️ Schedule summary (UTC)\n\nPrompt: \n{}\n\nStart: {}:{} UTC\nRepeat: {}",
-        prompt, hour, minute, repeat
+        "🗓️ Schedule summary (UTC)\n\nPrompt: \n{}{}\n\nStart: {}:{} UTC\nRepeat: {}",
+        prompt, image_info, hour, minute, repeat
     )
 }
 
@@ -45,6 +50,16 @@ fn nav_row(back_enabled: bool) -> Vec<InlineKeyboardButton> {
 
 pub fn build_nav_keyboard_prompt(back_enabled: bool) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![nav_row(back_enabled)])
+}
+
+pub fn build_image_keyboard_with_nav_prompt(back_enabled: bool) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    rows.push(vec![InlineKeyboardButton::callback(
+        "⏭️ Skip Image".to_string(),
+        "sched_skip_image".to_string(),
+    )]);
+    rows.push(nav_row(back_enabled));
+    InlineKeyboardMarkup::new(rows)
 }
 
 pub fn build_hours_keyboard_with_nav_prompt(back_enabled: bool) -> InlineKeyboardMarkup {
@@ -119,6 +134,13 @@ pub fn reset_from_step_prompts(state: &mut PendingWizardState, step: PendingStep
     match step {
         PendingStep::AwaitingPrompt => {
             state.prompt = None;
+            state.image_url = None;
+            state.hour_utc = None;
+            state.minute_utc = None;
+            state.repeat = None;
+        }
+        PendingStep::AwaitingImage => {
+            state.image_url = None;
             state.hour_utc = None;
             state.minute_utc = None;
             state.repeat = None;

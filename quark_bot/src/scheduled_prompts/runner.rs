@@ -224,24 +224,33 @@ fn add_interval_from(_from: i64, policy: &RepeatPolicy, start_hour: u8, start_mi
 
 pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyhow::Result<()> {
     let storage = ScheduledStorage::new(&bot_deps.db)?;
-    for item in storage.scheduled.iter() {
-        if let Ok((_, ivec)) = item {
-            if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
-                &ivec,
-                bincode::config::standard(),
-            ) {
-                if rec.active {
-                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await
-                    {
-                        log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
-                    }
-                    if let Err(e) = storage.put_schedule(&rec) {
-                        log::warn!(
-                            "Failed to persist schedule {} after bootstrap register: {}",
-                            rec.id,
-                            e
-                        );
-                    }
+    // Collect all schedule IDs first to avoid iterator issues
+    let schedule_ids: Vec<String> = storage
+        .scheduled
+        .iter()
+        .filter_map(|item| {
+            if let Ok((key, _)) = item {
+                String::from_utf8(key.to_vec()).ok()
+            } else {
+                log::error!("Failed to get schedule ID from iterator {:?}", item.err());
+                None
+            }
+        })
+        .collect();
+
+    // Now load and register each schedule using storage methods (which handle migration)
+    for id in schedule_ids {
+        if let Some(mut rec) = storage.get_schedule(&id) {
+            if rec.active {
+                if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await {
+                    log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
+                }
+                if let Err(e) = storage.put_schedule(&rec) {
+                    log::warn!(
+                        "Failed to persist schedule {} after bootstrap register: {}",
+                        rec.id,
+                        e
+                    );
                 }
             }
         }
@@ -395,10 +404,22 @@ pub async fn register_schedule(
             let creator_user_id = rec.creator_user_id;
 
             // Append a safety note only to the API input; not shown in Telegram or stored
+            // NOTE: The scheduled prompt image is meant to be displayed alongside the
+            // response for branding purposes. We intentionally avoid attaching the
+            // image as a vision payload for the AI request because the prompt text may
+            // be unrelated, and forcing the model to interpret the image can reduce
+            // answer quality.
+            let image_context = if let Some(ref img_url) = rec.image_url {
+                format!(
+                    "\n\nYou have an image available at: {}\nUse this image as context for your response.",
+                    img_url
+                )
+            } else {
+                String::new()
+            };
             let prompt_for_api = format!(
-                "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}",
-                rec.prompt,
-                SCHEDULED_PROMPT_SUFFIX
+                "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}{}",
+                rec.prompt, image_context, SCHEDULED_PROMPT_SUFFIX
             );
 
             // Scheduled prompts should always start from a fresh conversation thread
@@ -423,7 +444,100 @@ pub async fn register_schedule(
                 Ok((ai_response, _new_resp_id)) => {
                     // Send output
                     let text_out = ai_response.text.clone();
-                    if let Some(image_data) = ai_response.image_data.clone() {
+
+                    // Check if there's a scheduled image to send
+                    if let Some(ref image_url) = rec.image_url {
+                        // Send scheduled image with AI response
+                        let photo = teloxide::types::InputFile::url(
+                            reqwest::Url::parse(image_url).unwrap_or_else(|_| {
+                                reqwest::Url::parse("https://placeholder.com").unwrap()
+                            }),
+                        );
+
+                        if text_out.len() <= 1024 && !text_out.trim().is_empty() {
+                            // Fits in caption
+                            let caption = crate::utils::sanitize_ai_html(&text_out);
+                            let mut req = bot
+                                .send_photo(group_chat_id, photo)
+                                .caption(caption)
+                                .parse_mode(ParseMode::Html);
+                            if let Some(tid) = rec.thread_id {
+                                req = req.message_thread_id(teloxide::types::ThreadId(
+                                    teloxide::types::MessageId(tid),
+                                ));
+                            }
+                            match req.await {
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent scheduled image with caption to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
+                            }
+                        } else if text_out.trim().is_empty() {
+                            // No text, just image
+                            let mut req = bot.send_photo(group_chat_id, photo);
+                            if let Some(tid) = rec.thread_id {
+                                req = req.message_thread_id(teloxide::types::ThreadId(
+                                    teloxide::types::MessageId(tid),
+                                ));
+                            }
+                            match req.await {
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent scheduled image to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
+                            }
+                        } else {
+                            // Text too long, send image then text
+                            let mut req = bot.send_photo(group_chat_id, photo);
+                            if let Some(tid) = rec.thread_id {
+                                req = req.message_thread_id(teloxide::types::ThreadId(
+                                    teloxide::types::MessageId(tid),
+                                ));
+                            }
+                            match req.await {
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent scheduled image to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
+                            }
+
+                            let chunks =
+                                send_long_message(&bot, group_chat_id, &text_out, rec.thread_id)
+                                    .await;
+                            log::info!(
+                                "[sched:{}] sent text chunks={} total_len={} to chat {}",
+                                schedule_id,
+                                chunks,
+                                text_out.len(),
+                                group_chat_id.0
+                            );
+                        }
+                    } else if let Some(image_data) = ai_response.image_data.clone() {
+                        // AI generated image (existing logic)
                         let photo = teloxide::types::InputFile::memory(image_data);
                         if text_out.trim().is_empty() {
                             match bot.send_photo(group_chat_id, photo).await {
