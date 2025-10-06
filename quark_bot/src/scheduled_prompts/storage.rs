@@ -1,4 +1,7 @@
-use crate::scheduled_prompts::dto::{LegacyPendingWizardState, LegacyScheduledPromptRecord, PendingWizardState, ScheduledPromptRecord};
+use crate::scheduled_prompts::dto::{
+    LegacyPendingWizardState, LegacyScheduledPromptRecord, PendingWizardState,
+    ScheduledPromptRecord,
+};
 use sled::{Db, IVec, Tree};
 
 const SCHEDULED_PROMPTS_TREE: &str = "scheduled_prompts";
@@ -24,7 +27,10 @@ impl ScheduledStorage {
         Ok(())
     }
 
-    fn migrate_legacy_scheduled_prompt(&self, legacy: LegacyScheduledPromptRecord) -> ScheduledPromptRecord {
+    fn migrate_legacy_scheduled_prompt(
+        &self,
+        legacy: LegacyScheduledPromptRecord,
+    ) -> ScheduledPromptRecord {
         ScheduledPromptRecord {
             id: legacy.id,
             group_id: legacy.group_id,
@@ -47,7 +53,10 @@ impl ScheduledStorage {
         }
     }
 
-    fn migrate_legacy_pending_wizard_state(&self, legacy: LegacyPendingWizardState) -> PendingWizardState {
+    fn migrate_legacy_pending_wizard_state(
+        &self,
+        legacy: LegacyPendingWizardState,
+    ) -> PendingWizardState {
         PendingWizardState {
             group_id: legacy.group_id,
             creator_user_id: legacy.creator_user_id,
@@ -76,20 +85,29 @@ impl ScheduledStorage {
                     Some(record)
                 } else {
                     // Try to deserialize as legacy format and migrate
-                    if let Ok((legacy_record, _)) = bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
-                        &ivec,
-                        bincode::config::standard(),
-                    ) {
+                    if let Ok((legacy_record, _)) =
+                        bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
+                            &ivec,
+                            bincode::config::standard(),
+                        )
+                    {
                         let migrated_record = self.migrate_legacy_scheduled_prompt(legacy_record);
                         // Save migrated record back to database
                         if let Err(e) = self.put_schedule(&migrated_record) {
-                            log::error!("Failed to save migrated scheduled prompt {}: {}", migrated_record.id, e);
+                            log::error!(
+                                "Failed to save migrated scheduled prompt {}: {}",
+                                migrated_record.id,
+                                e
+                            );
                         } else {
                             log::info!("Migrated legacy scheduled prompt: {}", migrated_record.id);
                         }
                         Some(migrated_record)
                     } else {
-                        log::error!("Failed to decode scheduled prompt {} in both new and legacy formats", id);
+                        log::error!(
+                            "Failed to decode scheduled prompt {} in both new and legacy formats",
+                            id
+                        );
                         None
                     }
                 }
@@ -107,6 +125,8 @@ impl ScheduledStorage {
         for kv in self.scheduled.iter() {
             if let Ok((_k, ivec)) = kv {
                 // Try to deserialize as new format first
+                let rec_string = String::from_utf8(ivec.to_vec()).unwrap();
+                log::info!("rec_string: {}", rec_string);
                 if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
                     &ivec,
                     bincode::config::standard(),
@@ -116,14 +136,20 @@ impl ScheduledStorage {
                     }
                 } else {
                     // Try to deserialize as legacy format and migrate
-                    if let Ok((legacy_rec, _)) = bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
-                        &ivec,
-                        bincode::config::standard(),
-                    ) {
+                    if let Ok((legacy_rec, _)) =
+                        bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
+                            &ivec,
+                            bincode::config::standard(),
+                        )
+                    {
                         let migrated_rec = self.migrate_legacy_scheduled_prompt(legacy_rec);
                         // Save migrated record back to database
                         if let Err(e) = self.put_schedule(&migrated_rec) {
-                            log::error!("Failed to save migrated scheduled prompt {}: {}", migrated_rec.id, e);
+                            log::error!(
+                                "Failed to save migrated scheduled prompt {}: {}",
+                                migrated_rec.id,
+                                e
+                            );
                         } else {
                             log::info!("Migrated legacy scheduled prompt: {}", migrated_rec.id);
                         }
@@ -131,7 +157,10 @@ impl ScheduledStorage {
                             out.push(migrated_rec);
                         }
                     } else {
-                        log::error!("Error decoding scheduled prompt in both new and legacy formats: {:?}", ivec);
+                        log::error!(
+                            "Error decoding scheduled prompt in both new and legacy formats: {:?}",
+                            ivec
+                        );
                     }
                 }
             } else {
