@@ -224,24 +224,32 @@ fn add_interval_from(_from: i64, policy: &RepeatPolicy, start_hour: u8, start_mi
 
 pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyhow::Result<()> {
     let storage = ScheduledStorage::new(&bot_deps.db)?;
-    for item in storage.scheduled.iter() {
-        if let Ok((_, ivec)) = item {
-            if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
-                &ivec,
-                bincode::config::standard(),
-            ) {
-                if rec.active {
-                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await
-                    {
-                        log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
-                    }
-                    if let Err(e) = storage.put_schedule(&rec) {
-                        log::warn!(
-                            "Failed to persist schedule {} after bootstrap register: {}",
-                            rec.id,
-                            e
-                        );
-                    }
+    // Collect all schedule IDs first to avoid iterator issues
+    let schedule_ids: Vec<String> = storage
+        .scheduled
+        .iter()
+        .filter_map(|item| {
+            if let Ok((key, _)) = item {
+                String::from_utf8(key.to_vec()).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Now load and register each schedule using storage methods (which handle migration)
+    for id in schedule_ids {
+        if let Some(mut rec) = storage.get_schedule(&id) {
+            if rec.active {
+                if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await {
+                    log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
+                }
+                if let Err(e) = storage.put_schedule(&rec) {
+                    log::warn!(
+                        "Failed to persist schedule {} after bootstrap register: {}",
+                        rec.id,
+                        e
+                    );
                 }
             }
         }
