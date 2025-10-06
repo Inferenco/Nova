@@ -157,10 +157,14 @@ impl ScheduledStorage {
                             out.push(migrated_rec);
                         }
                     } else {
-                        log::error!(
-                            "Error decoding scheduled prompt in both new and legacy formats: {:?}",
-                            ivec
-                        );
+                        if let Err(e) = String::from_utf8(ivec.to_vec()) {
+                            log::error!(
+                                "Error decoding scheduled prompt in both new and legacy formats: {:?}",
+                                e
+                            );
+                        } else {
+                            log::info!("rec_string: {}", rec_string);
+                        }
                     }
                 }
             } else {
