@@ -123,28 +123,8 @@ impl ScheduledStorage {
     pub fn list_schedules_for_group(&self, group_id: i64) -> Vec<ScheduledPromptRecord> {
         let mut out = Vec::new();
         for kv in self.scheduled.iter() {
-            if let Ok((k, ivec)) = kv {
+            if let Ok((_k, ivec)) = kv {
                 // Try to deserialize as new format first
-                let rec_string =
-                    bincode::decode_from_slice::<String, _>(&ivec, bincode::config::standard());
-
-                let id = serde_json::from_slice::<String>(&k);
-
-                if let Ok(id) = id {
-                    log::info!("id: {}", id);
-                } else {
-                    log::error!("Error decoding scheduled prompt id: {:?}", id.err());
-                };
-
-                if let Ok(rec_string) = rec_string {
-                    log::info!("rec_string: {}", rec_string.0);
-                } else {
-                    log::error!(
-                        "Error decoding scheduled prompt in both new and legacy formats: {:?}",
-                        rec_string.err()
-                    );
-                };
-
                 if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
                     &ivec,
                     bincode::config::standard(),
@@ -174,15 +154,13 @@ impl ScheduledStorage {
                         if migrated_rec.group_id == group_id && migrated_rec.active {
                             out.push(migrated_rec);
                         }
-                    } else {
-                        if let Err(e) = String::from_utf8(ivec.to_vec()) {
-                            log::error!(
-                                "Error decoding scheduled prompt in both new and legacy formats: {:?}",
-                                e
-                            );
-                        } else {
-                            log::info!("erro to decode");
-                        }
+                    }
+
+                    if let Err(e) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
+                        &ivec,
+                        bincode::config::standard(),
+                    ) {
+                        log::error!("Error decoding scheduled prompt: {:?}", e);
                     }
                 }
             } else {
