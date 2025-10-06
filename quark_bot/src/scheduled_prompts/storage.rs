@@ -123,10 +123,18 @@ impl ScheduledStorage {
     pub fn list_schedules_for_group(&self, group_id: i64) -> Vec<ScheduledPromptRecord> {
         let mut out = Vec::new();
         for kv in self.scheduled.iter() {
-            if let Ok((_k, ivec)) = kv {
+            if let Ok((k, ivec)) = kv {
                 // Try to deserialize as new format first
                 let rec_string =
                     bincode::decode_from_slice::<String, _>(&ivec, bincode::config::standard());
+
+                let id = bincode::decode_from_slice::<String, _>(&k, bincode::config::standard());
+
+                if let Ok(id) = id {
+                    log::info!("id: {}", id.0);
+                } else {
+                    log::error!("Error decoding scheduled prompt id: {:?}", id.err());
+                };
 
                 if let Ok(rec_string) = rec_string {
                     log::info!("rec_string: {}", rec_string.0);
