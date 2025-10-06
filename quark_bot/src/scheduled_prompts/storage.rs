@@ -125,8 +125,18 @@ impl ScheduledStorage {
         for kv in self.scheduled.iter() {
             if let Ok((_k, ivec)) = kv {
                 // Try to deserialize as new format first
-                let rec_string = String::from_utf8(ivec.to_vec()).unwrap();
-                log::info!("rec_string: {}", rec_string);
+                let rec_string =
+                    bincode::decode_from_slice::<String, _>(&ivec, bincode::config::standard());
+
+                if let Ok(rec_string) = rec_string {
+                    log::info!("rec_string: {}", rec_string.0);
+                } else {
+                    log::error!(
+                        "Error decoding scheduled prompt in both new and legacy formats: {:?}",
+                        rec_string.err()
+                    );
+                };
+
                 if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
                     &ivec,
                     bincode::config::standard(),
@@ -163,7 +173,7 @@ impl ScheduledStorage {
                                 e
                             );
                         } else {
-                            log::info!("rec_string: {}", rec_string);
+                            log::info!("erro to decode");
                         }
                     }
                 }
