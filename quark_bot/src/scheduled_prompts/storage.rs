@@ -84,23 +84,13 @@ impl ScheduledStorage {
                 ) {
                     Some(record)
                 } else {
-                    // Try to deserialize as legacy format with standard config
-                    let legacy_result = bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
-                        &ivec,
-                        bincode::config::standard(),
-                    );
-                    
-                    let legacy_record = if let Ok((legacy_rec, _)) = legacy_result {
-                        Some(legacy_rec)
-                    } else {
-                        // Try with legacy config (bincode 1.x compatibility)
+                    // Try to deserialize as legacy format (without image_url field)
+                    if let Ok((legacy_record, _)) =
                         bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
                             &ivec,
-                            bincode::config::legacy(),
-                        ).ok().map(|(rec, _)| rec)
-                    };
-                    
-                    if let Some(legacy_record) = legacy_record {
+                            bincode::config::standard(),
+                        )
+                    {
                         let migrated_record = self.migrate_legacy_scheduled_prompt(legacy_record);
                         // Save migrated record back to database
                         if let Err(e) = self.put_schedule(&migrated_record) {
@@ -115,7 +105,7 @@ impl ScheduledStorage {
                         Some(migrated_record)
                     } else {
                         log::error!(
-                            "Failed to decode scheduled prompt {} in all formats (standard, legacy standard, legacy config)",
+                            "Failed to decode scheduled prompt {} in both new and legacy formats",
                             id
                         );
                         None
@@ -143,23 +133,13 @@ impl ScheduledStorage {
                         out.push(rec);
                     }
                 } else {
-                    // Try to deserialize as legacy format with standard config
-                    let legacy_result = bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
-                        &ivec,
-                        bincode::config::standard(),
-                    );
-                    
-                    let legacy_rec = if let Ok((legacy_rec, _)) = legacy_result {
-                        Some(legacy_rec)
-                    } else {
-                        // Try with legacy config (bincode 1.x compatibility)
+                    // Try to deserialize as legacy format (without image_url field)
+                    if let Ok((legacy_rec, _)) =
                         bincode::decode_from_slice::<LegacyScheduledPromptRecord, _>(
                             &ivec,
-                            bincode::config::legacy(),
-                        ).ok().map(|(rec, _)| rec)
-                    };
-                    
-                    if let Some(legacy_rec) = legacy_rec {
+                            bincode::config::standard(),
+                        )
+                    {
                         let migrated_rec = self.migrate_legacy_scheduled_prompt(legacy_rec);
                         // Save migrated record back to database
                         if let Err(e) = self.put_schedule(&migrated_rec) {
@@ -176,7 +156,7 @@ impl ScheduledStorage {
                         }
                     } else {
                         log::error!(
-                            "Failed to decode scheduled prompt in standard, legacy standard, and legacy config formats"
+                            "Failed to decode scheduled prompt in both new and legacy formats"
                         );
                     }
                 }
@@ -201,20 +181,8 @@ impl ScheduledStorage {
             if let Ok((state, _)) = bincode::decode_from_slice::<PendingWizardState, _>(&ivec, bincode::config::standard()) {
                 Some(state)
             } else {
-                // Try to deserialize as legacy format with standard config
-                let legacy_result = bincode::decode_from_slice::<LegacyPendingWizardState, _>(&ivec, bincode::config::standard());
-                
-                let legacy_state = if let Ok((legacy_st, _)) = legacy_result {
-                    Some(legacy_st)
-                } else {
-                    // Try with legacy config (bincode 1.x compatibility)
-                    bincode::decode_from_slice::<LegacyPendingWizardState, _>(
-                        &ivec,
-                        bincode::config::legacy(),
-                    ).ok().map(|(st, _)| st)
-                };
-                
-                if let Some(legacy_state) = legacy_state {
+                // Try to deserialize as legacy format (without image_url field)
+                if let Ok((legacy_state, _)) = bincode::decode_from_slice::<LegacyPendingWizardState, _>(&ivec, bincode::config::standard()) {
                     let migrated_state = self.migrate_legacy_pending_wizard_state(legacy_state);
                     // Save migrated state back to database
                     if let Err(e) = self.put_pending(key, &migrated_state) {
@@ -224,7 +192,7 @@ impl ScheduledStorage {
                     }
                     Some(migrated_state)
                 } else {
-                    log::error!("Failed to decode pending wizard state in all formats for group {} user {}", key.0, key.1);
+                    log::error!("Failed to decode pending wizard state in both new and legacy formats for group {} user {}", key.0, key.1);
                     None
                 }
             }
