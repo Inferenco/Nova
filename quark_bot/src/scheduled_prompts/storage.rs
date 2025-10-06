@@ -1,4 +1,7 @@
-use crate::scheduled_prompts::dto::{PendingWizardState, ScheduledPromptRecord};
+use crate::scheduled_prompts::dto::{
+    decode_pending_wizard_state, decode_scheduled_prompt_record, encode_pending_wizard_state,
+    encode_scheduled_prompt_record, PendingWizardState, ScheduledPromptRecord,
+};
 use sled::{Db, IVec, Tree};
 
 const SCHEDULED_PROMPTS_TREE: &str = "scheduled_prompts";
@@ -19,7 +22,7 @@ impl ScheduledStorage {
 
     pub fn put_schedule(&self, record: &ScheduledPromptRecord) -> sled::Result<()> {
         let key = record.id.as_bytes();
-        let bytes = bincode::encode_to_vec(record, bincode::config::standard()).unwrap();
+        let bytes = encode_scheduled_prompt_record(record);
         self.scheduled.insert(key, bytes)?;
         Ok(())
     }
@@ -29,14 +32,7 @@ impl ScheduledStorage {
             .get(id.as_bytes())
             .ok()
             .flatten()
-            .and_then(|ivec: IVec| {
-                bincode::decode_from_slice::<ScheduledPromptRecord, _>(
-                    &ivec,
-                    bincode::config::standard(),
-                )
-                .ok()
-                .map(|(v, _)| v)
-            })
+            .and_then(|ivec: IVec| decode_scheduled_prompt_record(&ivec).ok())
     }
 
     #[allow(dead_code)]
@@ -49,10 +45,7 @@ impl ScheduledStorage {
         let mut out = Vec::new();
         for kv in self.scheduled.iter() {
             if let Ok((_k, ivec)) = kv {
-                if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
-                    &ivec,
-                    bincode::config::standard(),
-                ) {
+                if let Ok(rec) = decode_scheduled_prompt_record(&ivec) {
                     if rec.group_id == group_id && rec.active {
                         out.push(rec);
                     } else {
@@ -70,18 +63,18 @@ impl ScheduledStorage {
 
     pub fn put_pending(&self, key: (&i64, &i64), state: &PendingWizardState) -> sled::Result<()> {
         let k = Self::pending_key_bytes(key);
-        let bytes = bincode::encode_to_vec(state, bincode::config::standard()).unwrap();
+        let bytes = encode_pending_wizard_state(state);
         self.pending.insert(k, bytes)?;
         Ok(())
     }
 
     pub fn get_pending(&self, key: (&i64, &i64)) -> Option<PendingWizardState> {
         let k = Self::pending_key_bytes(key);
-        self.pending.get(k).ok().flatten().and_then(|ivec: IVec| {
-            bincode::decode_from_slice::<PendingWizardState, _>(&ivec, bincode::config::standard())
-                .ok()
-                .map(|(v, _)| v)
-        })
+        self.pending
+            .get(k)
+            .ok()
+            .flatten()
+            .and_then(|ivec: IVec| decode_pending_wizard_state(&ivec).ok())
     }
 
     pub fn delete_pending(&self, key: (&i64, &i64)) -> sled::Result<()> {
