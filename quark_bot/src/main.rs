@@ -12,6 +12,7 @@ mod filters;
 mod group;
 mod job;
 mod message_history;
+mod migrations;
 mod panora;
 mod payment;
 mod pending_transactions;
@@ -229,6 +230,12 @@ async fn main() {
 
     let default_payment_prefs =
         PaymentPrefs::from((default_symbol, default_currency, default_version));
+
+    migrations::schedule_prompts::update_bincode_to_serder(scheduled_storage.clone())
+        .expect("Failed to update scheduled prompts");
+
+    migrations::schedule_payments::update_bincode_to_serder(scheduled_payments.clone())
+        .expect("Failed to update scheduled payments");
 
     let bot_deps = BotDependencies {
         db,

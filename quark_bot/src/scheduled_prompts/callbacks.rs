@@ -1,18 +1,19 @@
 use anyhow::Result;
-use teloxide::{prelude::*, types::{InlineKeyboardMarkup, InlineKeyboardButton as Btn, MaybeInaccessibleMessage}};
+use teloxide::{
+    prelude::*,
+    types::{
+        InlineKeyboardButton as Btn, InlineKeyboardMarkup, MaybeInaccessibleMessage, ParseMode,
+    },
+};
 
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{PendingStep, RepeatPolicy},
     scheduled_prompts::handler::finalize_and_register,
     scheduled_prompts::helpers::{
-        build_hours_keyboard_with_nav_prompt,
-        build_image_keyboard_with_nav_prompt,
-        build_minutes_keyboard_with_nav_prompt,
-        build_repeat_keyboard_with_nav_prompt,
-        build_nav_keyboard_prompt,
-        reset_from_step_prompts,
-        summarize,
+        build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt,
+        build_minutes_keyboard_with_nav_prompt, build_nav_keyboard_prompt,
+        build_repeat_keyboard_with_nav_prompt, reset_from_step_prompts, summarize,
     },
 };
 
@@ -74,40 +75,60 @@ pub async fn handle_scheduled_prompts_callback(
                     }
                     PendingStep::AwaitingHour => {
                         let kb = build_hours_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(message.chat.id, message.id, "Select start hour (UTC)")
-                            .reply_markup(kb)
-                            .await?;
+                        bot.edit_message_text(
+                            message.chat.id,
+                            message.id,
+                            "Select start hour (UTC)",
+                        )
+                        .reply_markup(kb)
+                        .await?;
                     }
                     PendingStep::AwaitingMinute => {
                         let kb = build_minutes_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
-                            .reply_markup(kb)
-                            .await?;
+                        bot.edit_message_text(
+                            message.chat.id,
+                            message.id,
+                            "Select start minute (UTC)",
+                        )
+                        .reply_markup(kb)
+                        .await?;
                     }
                     PendingStep::AwaitingRepeat => {
                         let kb = build_repeat_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                            .reply_markup(kb)
-                            .await?;
+                        bot.edit_message_text(
+                            message.chat.id,
+                            message.id,
+                            "Select repeat interval",
+                        )
+                        .reply_markup(kb)
+                        .await?;
                     }
                     PendingStep::AwaitingConfirm => { /* unreachable */ }
                 }
             } else {
-                bot.answer_callback_query(query.id).text("ℹ️ Already at first step").await?;
+                bot.answer_callback_query(query.id)
+                    .text("ℹ️ Already at first step")
+                    .await?;
             }
         } else {
-            bot.answer_callback_query(query.id).text("ℹ️ No pending schedule to navigate").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ No pending schedule to navigate")
+                .await?;
         }
     } else if data == "sched_cancel" {
         let key = (&message.chat.id.0, &(user.id.0 as i64));
         if bot_deps.scheduled_storage.get_pending(key).is_some() {
             bot_deps.scheduled_storage.delete_pending(key)?;
-            bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
+            bot.answer_callback_query(query.id)
+                .text("✅ Cancelled")
+                .await?;
             if let Some(MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
             }
         } else {
-            bot.answer_callback_query(query.id).text("ℹ️ No pending schedule to cancel").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ No pending schedule to cancel")
+                .await?;
         }
     } else if data == "sched_skip_image" {
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
@@ -174,6 +195,7 @@ pub async fn handle_scheduled_prompts_callback(
             ]);
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, summary)
+                .parse_mode(ParseMode::Html)
                 .reply_markup(kb)
                 .await?;
         }

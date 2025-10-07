@@ -1,4 +1,5 @@
 use crate::scheduled_payments::dto::{PendingPaymentWizardState, ScheduledPaymentRecord};
+use anyhow::Result as anyhowResult;
 use sled::{Db, IVec, Tree};
 
 const SCHEDULED_PAYMENTS_TREE: &str = "scheduled_payments";
@@ -17,9 +18,9 @@ impl ScheduledPaymentsStorage {
         Ok(Self { scheduled, pending })
     }
 
-    pub fn put_schedule(&self, record: &ScheduledPaymentRecord) -> sled::Result<()> {
+    pub fn put_schedule(&self, record: &ScheduledPaymentRecord) -> anyhowResult<()> {
         let key = record.id.as_bytes();
-        let bytes = bincode::encode_to_vec(record, bincode::config::standard()).unwrap();
+        let bytes = serde_json::to_vec(record)?;
         self.scheduled.insert(key, bytes)?;
         Ok(())
     }
@@ -30,12 +31,12 @@ impl ScheduledPaymentsStorage {
             .ok()
             .flatten()
             .and_then(|ivec: IVec| {
-                bincode::decode_from_slice::<ScheduledPaymentRecord, _>(
-                    &ivec,
-                    bincode::config::standard(),
-                )
-                .ok()
-                .map(|(v, _)| v)
+                serde_json::from_slice(&ivec)
+                    .map_err(|e| {
+                        log::error!("Failed to decode scheduled payment {}: {}", id, e);
+                        e
+                    })
+                    .ok()
             })
     }
 
@@ -43,22 +44,25 @@ impl ScheduledPaymentsStorage {
         let mut out = Vec::new();
         for kv in self.scheduled.iter() {
             if let Ok((_k, ivec)) = kv {
-                if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPaymentRecord, _>(
-                    &ivec,
-                    bincode::config::standard(),
-                ) {
+                if let Ok(rec) = serde_json::from_slice::<ScheduledPaymentRecord>(&ivec) {
                     if rec.group_id == group_id && rec.active {
                         out.push(rec);
                     }
+                } else {
+                    log::error!("Failed to decode scheduled payment");
                 }
             }
         }
         out
     }
 
-    pub fn put_pending(&self, key: (&i64, &i64), state: &PendingPaymentWizardState) -> sled::Result<()> {
+    pub fn put_pending(
+        &self,
+        key: (&i64, &i64),
+        state: &PendingPaymentWizardState,
+    ) -> anyhowResult<()> {
         let k = Self::pending_key_bytes(key);
-        let bytes = bincode::encode_to_vec(state, bincode::config::standard()).unwrap();
+        let bytes = serde_json::to_vec(state)?;
         self.pending.insert(k, bytes)?;
         Ok(())
     }
@@ -66,9 +70,17 @@ impl ScheduledPaymentsStorage {
     pub fn get_pending(&self, key: (&i64, &i64)) -> Option<PendingPaymentWizardState> {
         let k = Self::pending_key_bytes(key);
         self.pending.get(k).ok().flatten().and_then(|ivec: IVec| {
-            bincode::decode_from_slice::<PendingPaymentWizardState, _>(&ivec, bincode::config::standard())
+            serde_json::from_slice(&ivec)
+                .map_err(|e| {
+                    log::error!(
+                        "Failed to decode pending payment wizard state for group {} user {}: {}",
+                        key.0,
+                        key.1,
+                        e
+                    );
+                    e
+                })
                 .ok()
-                .map(|(v, _)| v)
         })
     }
 
@@ -85,5 +97,3 @@ impl ScheduledPaymentsStorage {
         v
     }
 }
-
-
