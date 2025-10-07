@@ -70,3 +70,20 @@ impl Default for WelcomeMessageTemplate {
         }
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PendingWelcomeStep {
+    AwaitingCustomMessage,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PendingWelcomeWizardState {
+    pub group_id: i64,
+    pub initiator_user_id: i64,
+    pub step: PendingWelcomeStep,
+    pub custom_message: Option<String>,
+    #[serde(default)]
+    pub current_bot_message_id: Option<i32>,
+    #[serde(default)]
+    pub user_message_ids: Vec<i32>,
+}

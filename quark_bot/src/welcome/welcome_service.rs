@@ -8,7 +8,7 @@ use teloxide::{
 };
 
 use crate::welcome::{
-    dto::{PendingVerification, WelcomeSettings, WelcomeStats},
+    dto::{PendingVerification, PendingWelcomeWizardState, WelcomeSettings, WelcomeStats},
     helpers::{get_custom_welcome_message, get_verification_expiry_time, is_verification_expired},
 };
 use crate::utils::{escape_for_markdown_v2};
@@ -20,6 +20,7 @@ pub struct WelcomeService {
     settings_db: Tree,
     verifications_db: Tree,
     stats_db: Tree,
+    pending_db: Tree,
     account_seed: String,
 }
 
@@ -34,6 +35,9 @@ impl WelcomeService {
         let stats_db = db
             .open_tree("welcome_stats")
             .expect("Failed to open welcome stats tree");
+        let pending_db = db
+            .open_tree("welcome_pending")
+            .expect("Failed to open welcome pending tree");
 
         let account_seed: String =
             env::var("ACCOUNT_SEED").expect("ACCOUNT_SEED environment variable not found");
@@ -42,6 +46,7 @@ impl WelcomeService {
             settings_db,
             verifications_db,
             stats_db,
+            pending_db,
             account_seed,
         }
     }
@@ -480,71 +485,29 @@ impl WelcomeService {
         Ok(())
     }
 
-    pub async fn store_input_state(&self, chat_id: ChatId) -> Result<()> {
-        let key = format!(
-            "welcome_custom_msg_input:{}-{}",
-            chat_id.to_string(),
-            self.account_seed
-        );
-        let input_state = serde_json::json!({
-            "chat_id": chat_id.0,
-            "timestamp": chrono::Utc::now().timestamp(),
-            "type": "custom_message_input"
-        });
-        let bytes = serde_json::to_vec(&input_state)?;
-        self.settings_db.insert(key.as_bytes(), bytes)?;
+    // Wizard state management methods
+    pub fn put_pending_wizard(&self, key: String, state: &PendingWelcomeWizardState) -> Result<()> {
+        let bytes = serde_json::to_vec(state)?;
+        self.pending_db.insert(key.as_bytes(), bytes)?;
         Ok(())
     }
 
-    pub fn get_input_state(&self, chat_id: ChatId) -> Option<serde_json::Value> {
-        let key = format!(
-            "welcome_custom_msg_input:{}-{}",
-            chat_id.to_string(),
-            self.account_seed,
-        );
-        if let Ok(Some(bytes)) = self.settings_db.get(key.as_bytes()) {
-            if let Ok(value) = serde_json::from_slice(&bytes) {
-                return Some(value);
+    pub fn get_pending_wizard(&self, key: &str) -> Option<PendingWelcomeWizardState> {
+        if let Ok(Some(bytes)) = self.pending_db.get(key.as_bytes()) {
+            if let Ok(state) = serde_json::from_slice(&bytes) {
+                return Some(state);
             }
         }
         None
     }
 
-    pub fn clear_input_state(&self, chat_id: ChatId) -> Result<()> {
-        let key = format!(
-            "welcome_custom_msg_input:{}-{}",
-            chat_id.to_string(),
-            self.account_seed
-        );
-        self.settings_db.remove(key.as_bytes())?;
+    pub fn remove_pending_wizard(&self, key: &str) -> Result<()> {
+        self.pending_db.remove(key.as_bytes())?;
         Ok(())
     }
 
-    pub fn cleanup_expired_input_states(&self) -> Result<()> {
-        let mut expired_keys = Vec::new();
-        let now = chrono::Utc::now().timestamp();
-
-        for result in self.settings_db.iter() {
-            if let Ok((key, value)) = result {
-                let key_str = String::from_utf8_lossy(&key);
-                if key_str.starts_with("welcome_custom_msg_input:") {
-                    if let Ok(state) = serde_json::from_slice::<serde_json::Value>(&value) {
-                        if let Some(timestamp) = state["timestamp"].as_i64() {
-                            // Clear input states older than 10 minutes
-                            if now - timestamp > 600 {
-                                expired_keys.push(key);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for key in expired_keys {
-            self.settings_db.remove(&key)?;
-        }
-
-        Ok(())
+    pub fn account_seed(&self) -> &str {
+        &self.account_seed
     }
 }
 

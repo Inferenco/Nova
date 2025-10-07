@@ -7,7 +7,7 @@ use teloxide::{
 
 use crate::{
     dependencies::BotDependencies,
-    utils::{self, send_html_message, send_message},
+    utils::{self, send_message},
     welcome::{helpers::format_timeout_display, welcome_service::WelcomeService},
 };
 
@@ -59,7 +59,10 @@ pub async fn handle_welcome_settings_callback(
             reset_custom_message(bot.clone(), msg, welcome_service).await?;
         }
         "welcome_set_custom_message" => {
-            start_custom_message_input(bot.clone(), msg, welcome_service).await?;
+            start_custom_message_input(bot.clone(), msg, welcome_service, query.from.id).await?;
+        }
+        "welcome_cancel_custom_message" => {
+            cancel_custom_message_wizard(bot.clone(), msg, welcome_service, query.from.id).await?;
         }
         _ if data.starts_with("welcome_timeout_set_") => {
             let timeout = data.strip_prefix("welcome_timeout_set_").unwrap();
@@ -375,13 +378,52 @@ async fn reset_custom_message(
     Ok(())
 }
 
+async fn cancel_custom_message_wizard(
+    bot: Bot,
+    msg: &Message,
+    welcome_service: WelcomeService,
+    user_id: teloxide::types::UserId,
+) -> Result<()> {
+    let wizard_key = format!(
+        "welcome_{}-{}:{}",
+        msg.chat.id.0, welcome_service.account_seed(), user_id.0
+    );
+
+    // Get wizard state and delete current bot message
+    if let Some(wizard_state) = welcome_service.get_pending_wizard(&wizard_key) {
+        if let Some(bot_msg_id) = wizard_state.current_bot_message_id {
+            crate::welcome::helpers::delete_message_safe(&bot, msg.chat.id, bot_msg_id).await;
+        }
+    }
+
+    // Remove wizard state
+    if let Err(e) = welcome_service.remove_pending_wizard(&wizard_key) {
+        log::error!("Failed to remove wizard state: {}", e);
+    }
+
+    // Send cancellation message
+    bot.send_message(msg.chat.id, "❌ <b>Custom Message Setup Cancelled</b>\n\nNo changes were made to your welcome message.")
+        .parse_mode(ParseMode::Html)
+        .await?;
+
+    Ok(())
+}
+
 async fn start_custom_message_input(
     bot: Bot,
     msg: &Message,
     welcome_service: WelcomeService,
+    user_id: teloxide::types::UserId,
 ) -> Result<()> {
+    use crate::welcome::dto::{PendingWelcomeStep, PendingWelcomeWizardState};
+
+    let wizard_key = format!(
+        "welcome_{}-{}:{}",
+        msg.chat.id.0, welcome_service.account_seed(), user_id.0
+    );
+
     let text = "✏️ <b>Custom Welcome Message</b>\n\n\
-        Please reply to this message with your custom welcome message.\n\n\
+        Please send your custom welcome message.\n\n\
         💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n\
         Available placeholders:\n\
         • {username} - @username (creates clickable mention)\n\
@@ -391,27 +433,43 @@ async fn start_custom_message_input(
         • <code>Hello {username}! Welcome to {group_name}! 👋</code>\n\
         • <code>*Bold welcome*</code> to <code>{group_name}</code>, <code>{username}</code>!\n\
         • <code>Use `code` for inline formatting</code>\n\n\
-        <i>Send /cancel to cancel or just send your message.</i>";
+        <i>Send /cancel to cancel.</i>";
 
     let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        "↩️ Back",
-        "welcome_back_to_main",
+        "❌ Cancel",
+        "welcome_cancel_custom_message",
     )]]);
 
-    match bot
+    // Edit the message and capture its ID
+    let bot_message_id = match bot
         .edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await
     {
-        Ok(_) => log::info!("Successfully updated custom message input screen"),
-        Err(e) => log::error!("Failed to update custom message input screen: {}", e),
-    }
+        Ok(_) => {
+            log::info!("Successfully updated custom message input screen");
+            Some(msg.id.0)
+        }
+        Err(e) => {
+            log::error!("Failed to update custom message input screen: {}", e);
+            None
+        }
+    };
 
-    // Store the state that we're waiting for custom message input
-    match welcome_service.store_input_state(msg.chat.id).await {
-        Ok(_) => log::info!("Successfully stored welcome input state"),
-        Err(e) => log::error!("Failed to store welcome input state: {}", e),
+    // Create wizard state
+    let wizard_state = PendingWelcomeWizardState {
+        group_id: msg.chat.id.0,
+        initiator_user_id: user_id.0 as i64,
+        step: PendingWelcomeStep::AwaitingCustomMessage,
+        custom_message: None,
+        current_bot_message_id: bot_message_id,
+        user_message_ids: Vec::new(),
+    };
+
+    // Store wizard state
+    if let Err(e) = welcome_service.put_pending_wizard(wizard_key, &wizard_state) {
+        log::error!("Failed to save wizard state: {}", e);
     }
 
     Ok(())
@@ -482,6 +540,8 @@ pub async fn handle_welcome_message(
     user_id: String,
     group_id: String,
 ) -> Result<bool> {
+    use crate::welcome::dto::PendingWelcomeStep;
+
     let group_id = group_id.parse::<i64>();
 
     if group_id.is_err() {
@@ -489,7 +549,8 @@ pub async fn handle_welcome_message(
         return Err(anyhow::anyhow!("Invalid group ID"));
     }
 
-    let group_id = ChatId(group_id.unwrap());
+    let group_id_val = group_id.unwrap();
+    let chat_id = ChatId(group_id_val);
 
     let user_id = user_id.parse::<u64>();
 
@@ -498,83 +559,98 @@ pub async fn handle_welcome_message(
         return Ok(false);
     }
 
-    let user_id = UserId(user_id.unwrap());
+    let user_id_val = user_id.unwrap();
+    let user_id = UserId(user_id_val);
 
-    if let Some(_input_state) = bot_deps.welcome_service.get_input_state(group_id) {
-        log::info!("Found welcome input state for group: {}", group_id);
+    // Check for wizard state
+    let wizard_key = format!(
+        "welcome_{}-{}:{}",
+        group_id_val, bot_deps.welcome_service.account_seed(), user_id_val
+    );
+
+    if let Some(mut wizard_state) = bot_deps.welcome_service.get_pending_wizard(&wizard_key) {
+        log::info!("Found welcome wizard state for group: {}", chat_id);
+        
         // Only process if the user is an admin
-        let is_admin = utils::is_admin(&bot, group_id, user_id).await;
+        let is_admin = utils::is_admin(&bot, chat_id, user_id).await;
         if !is_admin {
             // Non-admin users typing during welcome setup - ignore silently
             return Ok(false);
         }
 
-        if let Some(text) = msg.text() {
-            let text = text.trim();
-            if !text.is_empty() {
-                if text == "/cancel" {
-                    // Cancel the custom message input
-                    bot_deps.welcome_service.clear_input_state(group_id)?;
+        if wizard_state.step == PendingWelcomeStep::AwaitingCustomMessage {
+            if let Some(text) = msg.text() {
+                let text = text.trim();
+                if !text.is_empty() {
+                    if text == "/cancel" {
+                        // Cancel handled via callback, but support command too
+                        crate::welcome::helpers::cleanup_and_transition(&bot, &mut wizard_state, chat_id, Some(msg.id.0)).await;
+                        bot_deps.welcome_service.remove_pending_wizard(&wizard_key)?;
+                        send_message(
+                            msg.clone(),
+                            bot,
+                            "❌ Custom message input cancelled.".to_string(),
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
+
+                    // Try to preserve markdown formatting, with fallback to plain text
+                    let message_text = msg
+                        .markdown_text()
+                        .map(|s| s.to_string())
+                        .or_else(|| msg.markdown_caption().map(|s| s.to_string()))
+                        .or_else(|| msg.text().map(|s| s.to_string()))
+                        .or_else(|| msg.caption().map(|s| s.to_string()))
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+
+                    // Clean up user message and bot instruction message
+                    crate::welcome::helpers::cleanup_and_transition(&bot, &mut wizard_state, chat_id, Some(msg.id.0)).await;
+
+                    // Update the welcome settings with custom message
+                    let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
+                    settings.custom_message = Some(message_text);
+                    settings.last_updated = chrono::Utc::now().timestamp();
+
+                    if let Err(e) = bot_deps
+                        .welcome_service
+                        .save_settings(msg.chat.id, settings)
+                    {
+                        send_message(
+                            msg.clone(),
+                            bot,
+                            format!("❌ Failed to save custom message: {}", e),
+                        )
+                        .await?;
+                        bot_deps.welcome_service.remove_pending_wizard(&wizard_key)?;
+                        return Ok(true);
+                    }
+
+                    // Remove wizard state
+                    bot_deps.welcome_service.remove_pending_wizard(&wizard_key)?;
+
+                    // Send success message as standalone
+                    bot.send_message(
+                        chat_id,
+                        "✅ <b>Custom welcome message updated successfully!</b>\n\n\
+                        New members will now see your custom message with placeholders replaced and markdown formatting preserved!",
+                    )
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+
+                    return Ok(true);
+                } else {
+                    // Empty text, ask for valid input
                     send_message(
                         msg.clone(),
                         bot,
-                        "❌ Custom message input cancelled.".to_string(),
+                        "❌ Please enter a valid welcome message. Use /cancel to cancel.".to_string(),
                     )
                     .await?;
                     return Ok(true);
                 }
-
-                // Try to preserve markdown formatting, with fallback to plain text
-                let message_text = msg
-                    .markdown_text()
-                    .map(|s| s.to_string())
-                    .or_else(|| msg.markdown_caption().map(|s| s.to_string()))
-                    .or_else(|| msg.text().map(|s| s.to_string()))
-                    .or_else(|| msg.caption().map(|s| s.to_string()))
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
-
-                // Update the welcome settings with custom message
-                let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
-                settings.custom_message = Some(message_text);
-                settings.last_updated = chrono::Utc::now().timestamp();
-
-                if let Err(e) = bot_deps
-                    .welcome_service
-                    .save_settings(msg.chat.id, settings)
-                {
-                    send_message(
-                        msg.clone(),
-                        bot,
-                        format!("❌ Failed to save custom message: {}", e),
-                    )
-                    .await?;
-                    return Ok(true);
-                }
-
-                // Clear the input state
-                bot_deps.welcome_service.clear_input_state(group_id)?;
-
-                // Send success message
-                send_html_message(
-                    msg.clone(),
-                    bot,
-                    "✅ <b>Custom welcome message updated successfully!</b>\n\n\
-                    New members will now see your custom message with placeholders replaced and markdown formatting preserved!".to_string(),
-                )
-                .await?;
-
-                return Ok(true);
-            } else {
-                // Empty text, ask for valid input
-                send_message(
-                    msg.clone(),
-                    bot,
-                    "❌ Please enter a valid welcome message. Use /cancel to cancel.".to_string(),
-                )
-                .await?;
-                return Ok(true);
             }
         }
     }
