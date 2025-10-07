@@ -61,6 +61,8 @@ pub struct PendingPaymentWizardState {
     pub minute_utc: Option<u8>,
     pub repeat: Option<RepeatPolicy>,
     pub weekly_weeks: Option<u8>,
+    pub current_bot_message_id: Option<i32>,
+    pub user_message_ids: Vec<i32>,
 }
 
 

@@ -6,7 +6,7 @@ use crate::scheduled_payments::dto::{
     PendingPaymentStep, PendingPaymentWizardState, ScheduledPaymentRecord,
 };
 use crate::utils::{KeyboardMarkupType, send_markdown_message_with_keyboard, send_message};
-use crate::scheduled_payments::helpers::{build_nav_keyboard_payments, build_hours_keyboard_with_nav_payments};
+use crate::scheduled_payments::helpers::{build_nav_keyboard_payments, build_hours_keyboard_with_nav_payments, send_step_message, cleanup_and_transition};
 use chrono::Utc;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, User};
 use uuid::Uuid;
@@ -54,7 +54,7 @@ pub async fn handle_schedulepayment_command(
         }
     };
 
-    let state = PendingPaymentWizardState {
+    let mut state = PendingPaymentWizardState {
         group_id: msg.chat.id.0 as i64,
         creator_user_id: user.id.0 as i64,
         creator_username: username,
@@ -71,21 +71,26 @@ pub async fn handle_schedulepayment_command(
         minute_utc: None,
         repeat: None,
         weekly_weeks: None,
+        current_bot_message_id: None,
+        user_message_ids: Vec::new(),
     };
-
-    bot_deps
-        .scheduled_payments
-        .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
     // First step: show Cancel button
     let kb = build_nav_keyboard_payments(false);
-    send_markdown_message_with_keyboard(
+    let sent_msg = send_step_message(
         bot,
-        msg,
-        KeyboardMarkupType::InlineKeyboardType(kb),
+        msg.chat.id,
         "👤 Send the recipient @username to receive payment (must have a linked wallet).",
+        kb,
     )
     .await?;
+    
+    // Store the message ID
+    state.current_bot_message_id = Some(sent_msg.id.0);
+    
+    bot_deps
+        .scheduled_payments
+        .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
     Ok(())
 }
@@ -247,7 +252,11 @@ pub async fn finalize_and_register_payment(
     crate::scheduled_payments::runner::register_schedule(bot.clone(), bot_deps.clone(), &mut rec)
         .await?;
     bot_deps.scheduled_payments.put_schedule(&rec)?;
-    send_message(msg, bot, "✅ Scheduled payment created!".to_string()).await?;
+    
+    // Send success message as standalone (not as reply to deleted message)
+    use teloxide::prelude::*;
+    bot.send_message(msg.chat.id, "✅ Scheduled payment created!")
+        .await?;
 
     Ok(())
 }
@@ -274,18 +283,30 @@ pub async fn handle_message_scheduled_payments(
                 // Expect @username
                 let uname = text_raw.trim_start_matches('@').to_string();
                 if let Some(creds) = bot_deps.auth.get_credentials(&uname) {
+                    // Clean up old messages
+                    cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                    
                     st.recipient_username = Some(uname);
                     st.recipient_address = Some(creds.resource_account_address);
                     st.step = PendingPaymentStep::AwaitingToken;
-                    bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                    
+                    // Send next step and capture message ID
                     let kb = build_nav_keyboard_payments(true);
-                    send_markdown_message_with_keyboard(
-                        bot,
-                        msg,
-                        KeyboardMarkupType::InlineKeyboardType(kb),
+                    match send_step_message(
+                        bot.clone(),
+                        msg.chat.id,
                         "💳 Send token symbol (e.g., APT, USDC, or emoji)",
+                        kb,
                     )
-                    .await?;
+                    .await {
+                        Ok(sent_msg) => {
+                            st.current_bot_message_id = Some(sent_msg.id.0);
+                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to send step message: {}", e);
+                        }
+                    }
                 } else {
                     send_message(
                         msg,
@@ -331,36 +352,60 @@ pub async fn handle_message_scheduled_payments(
                         }
                     }
                 };
+                // Clean up old messages
+                cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                
                 st.symbol = Some(symbol);
                 st.token_type = Some(token_type);
                 st.decimals = Some(decimals);
                 st.step = PendingPaymentStep::AwaitingAmount;
-                bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                
+                // Send next step and capture message ID
                 let kb = build_nav_keyboard_payments(true);
-                send_markdown_message_with_keyboard(
-                    bot,
-                    msg,
-                    KeyboardMarkupType::InlineKeyboardType(kb),
+                match send_step_message(
+                    bot.clone(),
+                    msg.chat.id,
                     "💰 Send amount (decimal)",
+                    kb,
                 )
-                .await?;
+                .await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                        bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send step message: {}", e);
+                    }
+                }
                 return Ok(true);
             }
             PendingPaymentStep::AwaitingAmount => {
                 let parsed = text_raw.replace('_', "").replace(',', "");
                 match parsed.parse::<f64>() {
                     Ok(v) if v > 0.0 => {
+                        // Clean up old messages
+                        cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                        
                         st.amount_display = Some(v);
                         st.step = PendingPaymentStep::AwaitingDate;
-                        bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                        
+                        // Send next step and capture message ID
                         let kb = build_nav_keyboard_payments(true);
-                        send_markdown_message_with_keyboard(
-                            bot,
-                            msg,
-                            KeyboardMarkupType::InlineKeyboardType(kb),
+                        match send_step_message(
+                            bot.clone(),
+                            msg.chat.id,
                             "📅 Send start date in YYYY-MM-DD (UTC)",
+                            kb,
                         )
-                        .await?;
+                        .await {
+                            Ok(sent_msg) => {
+                                st.current_bot_message_id = Some(sent_msg.id.0);
+                                bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to send step message: {}", e);
+                            }
+                        }
                     }
                     _ => {
                         send_message(
@@ -375,17 +420,29 @@ pub async fn handle_message_scheduled_payments(
             }
             PendingPaymentStep::AwaitingDate => {
                 if chrono::NaiveDate::parse_from_str(&text_raw, "%Y-%m-%d").is_ok() {
+                    // Clean up old messages
+                    cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                    
                     st.date = Some(text_raw);
                     st.step = PendingPaymentStep::AwaitingHour;
-                    bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                    
+                    // Send next step and capture message ID
                     let kb = build_hours_keyboard_with_nav_payments(true);
-                    send_markdown_message_with_keyboard(
-                        bot,
-                        msg,
-                        KeyboardMarkupType::InlineKeyboardType(kb),
+                    match send_step_message(
+                        bot.clone(),
+                        msg.chat.id,
                         "⏰ Select hour (UTC)",
+                        kb,
                     )
-                    .await?;
+                    .await {
+                        Ok(sent_msg) => {
+                            st.current_bot_message_id = Some(sent_msg.id.0);
+                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to send step message: {}", e);
+                        }
+                    }
                 } else {
                     send_message(msg, bot, "❌ Invalid date. Use YYYY-MM-DD.".to_string()).await?;
                 }
