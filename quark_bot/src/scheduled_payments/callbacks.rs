@@ -12,6 +12,8 @@ use crate::scheduled_payments::helpers::{
     build_nav_keyboard_payments,
     reset_from_step_payments,
     summarize,
+    send_step_message,
+    delete_message_safe,
 };
 use crate::scheduled_prompts::dto::RepeatPolicy;
 
@@ -46,24 +48,60 @@ pub async fn handle_scheduled_payments_callback(
     if data.starts_with("schedpay_hour:") {
         let hour: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_payments.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingPaymentStep::AwaitingMinute;
             st.hour_utc = Some(hour);
-            bot_deps.scheduled_payments.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, "Select minute (UTC)")
-                .reply_markup(build_minutes_keyboard_with_nav_payments(true))
-                .await?;
+            
+            // Send new message and capture ID
+            match send_step_message(
+                bot.clone(),
+                message.chat.id,
+                "Select minute (UTC)",
+                build_minutes_keyboard_with_nav_payments(true),
+            )
+            .await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_payments.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send minute selection message: {}", e);
+                }
+            }
         }
     } else if data.starts_with("schedpay_min:") {
         let minute: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_payments.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingPaymentStep::AwaitingRepeat;
             st.minute_utc = Some(minute);
-            bot_deps.scheduled_payments.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                .reply_markup(build_repeat_keyboard_with_nav_payments(true))
-                .await?;
+            
+            // Send new message and capture ID
+            match send_step_message(
+                bot.clone(),
+                message.chat.id,
+                "Select repeat interval",
+                build_repeat_keyboard_with_nav_payments(true),
+            )
+            .await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_payments.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send repeat selection message: {}", e);
+                }
+            }
         }
     } else if data.starts_with("schedpay_repeat:") {
         let (repeat, weeks) = match data.split(':').nth(1).unwrap_or("") {
@@ -74,10 +112,15 @@ pub async fn handle_scheduled_payments_callback(
             _ => (RepeatPolicy::Weekly, Some(1)),
         };
         if let Some(mut st) = bot_deps.scheduled_payments.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingPaymentStep::AwaitingConfirm;
             st.repeat = Some(repeat);
             st.weekly_weeks = weeks;
-            bot_deps.scheduled_payments.put_pending(key, &st)?;
+            
             let summary = summarize(&st);
             let kb = InlineKeyboardMarkup::new(vec![
                 vec![Btn::callback(
@@ -90,9 +133,17 @@ pub async fn handle_scheduled_payments_callback(
                 ],
             ]);
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, summary)
-                .reply_markup(kb)
-                .await?;
+            
+            // Send new confirmation message and capture ID
+            match send_step_message(bot.clone(), message.chat.id, &summary, kb).await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_payments.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send confirmation message: {}", e);
+                }
+            }
         }
     } else if data == "schedpay_confirm" {
         // Only the creator can confirm their own pending payment
@@ -103,6 +154,12 @@ pub async fn handle_scheduled_payments_callback(
                     .await?;
                 return Ok(());
             }
+            
+            // Delete the confirmation message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             bot_deps.scheduled_payments.delete_pending(key)?;
             super::handler::finalize_and_register_payment(
                 *message.clone(),
@@ -127,13 +184,16 @@ pub async fn handle_scheduled_payments_callback(
                     .await?;
                 return Ok(());
             }
+            
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             bot_deps.scheduled_payments.delete_pending(key)?;
             bot.answer_callback_query(query.id)
                 .text("✅ Cancelled")
                 .await?;
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
-            }
         } else {
             // No pending payment exists - still respond to prevent UI hang
             bot.answer_callback_query(query.id)
@@ -154,56 +214,60 @@ pub async fn handle_scheduled_payments_callback(
                 PendingPaymentStep::AwaitingRecipient => None,
             };
             if let Some(prev_step) = prev {
+                // Delete current message
+                if let Some(current_msg_id) = st.current_bot_message_id {
+                    delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+                }
+                
                 // reset values from this step onward so user starts again from here
                 reset_from_step_payments(&mut st, prev_step.clone());
                 st.step = prev_step.clone();
-                bot_deps.scheduled_payments.put_pending(key, &st)?;
                 bot.answer_callback_query(query.id).await?;
-                // Render the appropriate UI for the previous step
-                match prev_step {
+                
+                // Send fresh message for previous step
+                let (text, kb) = match prev_step {
                     PendingPaymentStep::AwaitingRecipient => {
-                        let kb = build_nav_keyboard_payments(false);
-                        bot.edit_message_text(message.chat.id, message.id, "👤 Send the recipient @username to receive payment (must have a linked wallet).")
-                            .reply_markup(kb)
-                            .await?;
+                        ("👤 Send the recipient @username to receive payment (must have a linked wallet).".to_string(),
+                         build_nav_keyboard_payments(false))
                     }
                     PendingPaymentStep::AwaitingToken => {
-                        let kb = build_nav_keyboard_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "💳 Send token symbol (e.g., APT, USDC, or emoji)")
-                            .reply_markup(kb)
-                            .await?;
+                        ("💳 Send token symbol (e.g., APT, USDC, or emoji)".to_string(),
+                         build_nav_keyboard_payments(true))
                     }
                     PendingPaymentStep::AwaitingAmount => {
-                        let kb = build_nav_keyboard_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "💰 Send amount (decimal)")
-                            .reply_markup(kb)
-                            .await?;
+                        ("💰 Send amount (decimal)".to_string(),
+                         build_nav_keyboard_payments(true))
                     }
                     PendingPaymentStep::AwaitingDate => {
-                        let kb = build_nav_keyboard_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "📅 Send start date in YYYY-MM-DD (UTC)")
-                            .reply_markup(kb)
-                            .await?;
+                        ("📅 Send start date in YYYY-MM-DD (UTC)".to_string(),
+                         build_nav_keyboard_payments(true))
                     }
                     PendingPaymentStep::AwaitingHour => {
-                        let kb = build_hours_keyboard_with_nav_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "⏰ Select hour (UTC)")
-                            .reply_markup(kb)
-                            .await?;
+                        ("⏰ Select hour (UTC)".to_string(),
+                         build_hours_keyboard_with_nav_payments(true))
                     }
                     PendingPaymentStep::AwaitingMinute => {
-                        let kb = build_minutes_keyboard_with_nav_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "Select minute (UTC)")
-                            .reply_markup(kb)
-                            .await?;
+                        ("Select minute (UTC)".to_string(),
+                         build_minutes_keyboard_with_nav_payments(true))
                     }
                     PendingPaymentStep::AwaitingRepeat => {
-                        let kb = build_repeat_keyboard_with_nav_payments(true);
-                        bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                            .reply_markup(kb)
-                            .await?;
+                        ("Select repeat interval".to_string(),
+                         build_repeat_keyboard_with_nav_payments(true))
                     }
-                    PendingPaymentStep::AwaitingConfirm => { /* unreachable here */ }
+                    PendingPaymentStep::AwaitingConfirm => {
+                        ("".to_string(), build_nav_keyboard_payments(false)) // unreachable
+                    }
+                };
+                
+                // Send new message and capture ID
+                match send_step_message(bot.clone(), message.chat.id, &text, kb).await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                        bot_deps.scheduled_payments.put_pending(key, &st)?;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send back step message: {}", e);
+                    }
                 }
             } else {
                 bot.answer_callback_query(query.id)
@@ -301,6 +365,8 @@ pub async fn handle_scheduled_payments_callback(
                 }),
                 repeat: Some(rec.repeat.clone()),
                 weekly_weeks: rec.weekly_weeks,
+                current_bot_message_id: None,
+                user_message_ids: Vec::new(),
             };
             bot_deps
                 .scheduled_payments

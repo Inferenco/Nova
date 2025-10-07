@@ -13,11 +13,11 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::{build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize},
+        helpers::{build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize, send_step_message, cleanup_and_transition},
         runner::register_schedule,
     },
     utils::{
-        KeyboardMarkupType, create_purchase_request, send_html_message,
+        KeyboardMarkupType, create_purchase_request,
         send_markdown_message_with_keyboard, send_message,
     },
 };
@@ -68,7 +68,7 @@ pub async fn handle_scheduleprompt_command(
         }
     };
 
-    let state = PendingWizardState {
+    let mut state = PendingWizardState {
         group_id: msg.chat.id.0 as i64,
         creator_user_id: user.id.0 as i64,
         creator_username: username,
@@ -83,25 +83,33 @@ pub async fn handle_scheduleprompt_command(
         } else {
             None
         },
+        current_bot_message_id: None,
+        user_message_ids: Vec::new(),
     };
-    bot_deps
-        .scheduled_storage
-        .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
     let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
     // First step: show Cancel only
     let kb = build_nav_keyboard_prompt(false);
-    send_markdown_message_with_keyboard(
+    let sent_msg = send_step_message(
         bot,
-        msg,
-        KeyboardMarkupType::InlineKeyboardType(kb),
+        msg.chat.id,
+        state.thread_id,
         &format!(
             "📝 Send the prompt you want to schedule — you can <b>reply to this message</b> or just <b>send it as your next message</b>.{}\n\nIf your prompt is rejected for using a forbidden action, <b>try again</b> with a safer prompt.",
             note
         ),
+        kb,
     )
     .await?;
+    
+    // Store the message ID
+    state.current_bot_message_id = Some(sent_msg.id.0);
+    
+    bot_deps
+        .scheduled_storage
+        .put_pending((&state.group_id, &state.creator_user_id), &state)?;
+
     Ok(())
 }
 
@@ -237,26 +245,36 @@ pub async fn finalize_and_register(
     register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await?;
     bot_deps.scheduled_storage.put_schedule(&rec)?;
 
-    send_html_message(
-        msg.clone(),
-        bot.clone(),
-        format!(
-            "✅ Scheduled created!\n\n{}",
-            summarize(&PendingWizardState {
-                group_id: rec.group_id,
-                creator_user_id: rec.creator_user_id,
-                creator_username: rec.creator_username,
-                step: PendingStep::AwaitingConfirm,
-                prompt: Some(rec.prompt),
-                image_url: rec.image_url,
-                hour_utc: Some(rec.start_hour_utc),
-                minute_utc: Some(rec.start_minute_utc),
-                repeat: Some(rec.repeat),
-                thread_id: rec.thread_id,
-            })
-        ),
-    )
-    .await?;
+    // Send success message to the thread (not as a reply to deleted message)
+    use teloxide::types::ParseMode;
+    use teloxide::prelude::*;
+    let success_text = format!(
+        "✅ Scheduled created!\n\n{}",
+        summarize(&PendingWizardState {
+            group_id: rec.group_id,
+            creator_user_id: rec.creator_user_id,
+            creator_username: rec.creator_username,
+            step: PendingStep::AwaitingConfirm,
+            prompt: Some(rec.prompt),
+            image_url: rec.image_url,
+            hour_utc: Some(rec.start_hour_utc),
+            minute_utc: Some(rec.start_minute_utc),
+            repeat: Some(rec.repeat),
+            thread_id: rec.thread_id,
+            current_bot_message_id: None,
+            user_message_ids: Vec::new(),
+        })
+    );
+    
+    let mut request = bot.send_message(msg.chat.id, success_text)
+        .parse_mode(ParseMode::Html);
+    
+    // For forum topics, use message_thread_id instead of reply_to
+    if let Some(thread) = state.thread_id {
+        request = request.message_thread_id(teloxide::types::ThreadId(teloxide::types::MessageId(thread)));
+    }
+    
+    request.await?;
 
     Ok(())
 }
@@ -321,28 +339,41 @@ pub async fn handle_message_scheduled_prompts(
                     }
                 }
 
+                // Clean up old messages
+                cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                
                 st.prompt = Some(text);
                 st.step = PendingStep::AwaitingImage;
-                if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
-                    log::error!("Failed to persist scheduled wizard state: {}", e);
-                    send_message(
-                        msg.clone(),
-                        bot,
-                        "❌ Error saving schedule state. Please try /scheduleprompt again."
-                            .to_string(),
-                    )
-                    .await?;
-                    return Ok(true);
-                }
+                
+                // Send next step and capture message ID
                 let kb = build_image_keyboard_with_nav_prompt(true);
-                send_markdown_message_with_keyboard(
-                    bot,
-                    msg,
-                    KeyboardMarkupType::InlineKeyboardType(kb),
+                match send_step_message(
+                    bot.clone(),
+                    msg.chat.id,
+                    st.thread_id,
                     "📷 Attach an image to use with this scheduled prompt (optional)\n\nSend a photo, or click Skip Image to continue.",
+                    kb,
                 )
-                .await?;
-                return Ok(true);
+                .await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                        if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                            log::error!("Failed to persist scheduled wizard state: {}", e);
+                            send_message(
+                                msg.clone(),
+                                bot,
+                                "❌ Error saving schedule state. Please try /scheduleprompt again."
+                                    .to_string(),
+                            )
+                            .await?;
+                        }
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send step message: {}", e);
+                        return Ok(true);
+                    }
+                }
             }
         } else if st.step == PendingStep::AwaitingImage {
             // Handle image upload
@@ -368,28 +399,41 @@ pub async fn handle_message_scheduled_prompts(
                     // Upload to GCS using AI handler
                     match bot_deps.ai.upload_user_images(vec![(temp_path, extension)]).await {
                         Ok(urls) if !urls.is_empty() => {
+                            // Clean up old messages
+                            cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                            
                             st.image_url = Some(urls[0].clone());
                             st.step = PendingStep::AwaitingHour;
-                            if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
-                                log::error!("Failed to persist scheduled wizard state: {}", e);
-                                send_message(
-                                    msg.clone(),
-                                    bot,
-                                    "❌ Error saving schedule state. Please try /scheduleprompt again."
-                                        .to_string(),
-                                )
-                                .await?;
-                                return Ok(true);
-                            }
+                            
+                            // Send next step and capture message ID
                             let kb = build_hours_keyboard_with_nav_prompt(true);
-                            send_markdown_message_with_keyboard(
-                                bot,
-                                msg,
-                                KeyboardMarkupType::InlineKeyboardType(kb),
+                            match send_step_message(
+                                bot.clone(),
+                                msg.chat.id,
+                                st.thread_id,
                                 "✅ Image uploaded! Now select start hour (UTC)",
+                                kb,
                             )
-                            .await?;
-                            return Ok(true);
+                            .await {
+                                Ok(sent_msg) => {
+                                    st.current_bot_message_id = Some(sent_msg.id.0);
+                                    if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                                        log::error!("Failed to persist scheduled wizard state: {}", e);
+                                        send_message(
+                                            msg.clone(),
+                                            bot,
+                                            "❌ Error saving schedule state. Please try /scheduleprompt again."
+                                                .to_string(),
+                                        )
+                                        .await?;
+                                    }
+                                    return Ok(true);
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to send step message: {}", e);
+                                    return Ok(true);
+                                }
+                            }
                         }
                         Ok(_) => {
                             log::error!("Image upload returned empty URLs");

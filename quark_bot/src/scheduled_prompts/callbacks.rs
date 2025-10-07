@@ -2,7 +2,7 @@ use anyhow::Result;
 use teloxide::{
     prelude::*,
     types::{
-        InlineKeyboardButton as Btn, InlineKeyboardMarkup, MaybeInaccessibleMessage, ParseMode,
+        InlineKeyboardButton as Btn, InlineKeyboardMarkup, MaybeInaccessibleMessage,
     },
 };
 
@@ -14,6 +14,7 @@ use crate::{
         build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt,
         build_minutes_keyboard_with_nav_prompt, build_nav_keyboard_prompt,
         build_repeat_keyboard_with_nav_prompt, reset_from_step_prompts, summarize,
+        send_step_message, delete_message_safe,
     },
 };
 
@@ -56,54 +57,51 @@ pub async fn handle_scheduled_prompts_callback(
                 PendingStep::AwaitingPrompt => None,
             };
             if let Some(prev_step) = prev {
+                // Delete current message
+                if let Some(current_msg_id) = st.current_bot_message_id {
+                    delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+                }
+                
                 reset_from_step_prompts(&mut st, prev_step.clone());
                 st.step = prev_step.clone();
-                bot_deps.scheduled_storage.put_pending(key, &st)?;
                 bot.answer_callback_query(query.id).await?;
-                match prev_step {
+                
+                // Send fresh message for previous step
+                let (text, kb) = match prev_step {
                     PendingStep::AwaitingPrompt => {
-                        let kb = build_nav_keyboard_prompt(false);
-                        bot.edit_message_text(message.chat.id, message.id, "📝 Send the prompt you want to schedule — you can reply to this message or just send it as your next message.")
-                            .reply_markup(kb)
-                            .await?;
+                        ("📝 Send the prompt you want to schedule — you can reply to this message or just send it as your next message.".to_string(),
+                         build_nav_keyboard_prompt(false))
                     }
                     PendingStep::AwaitingImage => {
-                        let kb = build_image_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(message.chat.id, message.id, "📷 Attach an image to use with this scheduled prompt (optional)\n\nSend a photo, or click Skip Image to continue.")
-                            .reply_markup(kb)
-                            .await?;
+                        ("📷 Attach an image to use with this scheduled prompt (optional)\n\nSend a photo, or click Skip Image to continue.".to_string(),
+                         build_image_keyboard_with_nav_prompt(true))
                     }
                     PendingStep::AwaitingHour => {
-                        let kb = build_hours_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(
-                            message.chat.id,
-                            message.id,
-                            "Select start hour (UTC)",
-                        )
-                        .reply_markup(kb)
-                        .await?;
+                        ("Select start hour (UTC)".to_string(),
+                         build_hours_keyboard_with_nav_prompt(true))
                     }
                     PendingStep::AwaitingMinute => {
-                        let kb = build_minutes_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(
-                            message.chat.id,
-                            message.id,
-                            "Select start minute (UTC)",
-                        )
-                        .reply_markup(kb)
-                        .await?;
+                        ("Select start minute (UTC)".to_string(),
+                         build_minutes_keyboard_with_nav_prompt(true))
                     }
                     PendingStep::AwaitingRepeat => {
-                        let kb = build_repeat_keyboard_with_nav_prompt(true);
-                        bot.edit_message_text(
-                            message.chat.id,
-                            message.id,
-                            "Select repeat interval",
-                        )
-                        .reply_markup(kb)
-                        .await?;
+                        ("Select repeat interval".to_string(),
+                         build_repeat_keyboard_with_nav_prompt(true))
                     }
-                    PendingStep::AwaitingConfirm => { /* unreachable */ }
+                    PendingStep::AwaitingConfirm => {
+                        ("".to_string(), build_nav_keyboard_prompt(false)) // unreachable
+                    }
+                };
+                
+                // Send new message and capture ID
+                match send_step_message(bot.clone(), message.chat.id, st.thread_id, &text, kb).await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                        bot_deps.scheduled_storage.put_pending(key, &st)?;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send back step message: {}", e);
+                    }
                 }
             } else {
                 bot.answer_callback_query(query.id)
@@ -117,14 +115,16 @@ pub async fn handle_scheduled_prompts_callback(
         }
     } else if data == "sched_cancel" {
         let key = (&message.chat.id.0, &(user.id.0 as i64));
-        if bot_deps.scheduled_storage.get_pending(key).is_some() {
+        if let Some(st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             bot_deps.scheduled_storage.delete_pending(key)?;
             bot.answer_callback_query(query.id)
                 .text("✅ Cancelled")
                 .await?;
-            if let Some(MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
-            }
         } else {
             bot.answer_callback_query(query.id)
                 .text("ℹ️ No pending schedule to cancel")
@@ -132,35 +132,92 @@ pub async fn handle_scheduled_prompts_callback(
         }
     } else if data == "sched_skip_image" {
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingStep::AwaitingHour;
             st.image_url = None;
-            bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, "Select start hour (UTC)")
-                .reply_markup(build_hours_keyboard_with_nav_prompt(true))
-                .await?;
+            
+            // Send new message and capture ID
+            match send_step_message(
+                bot.clone(),
+                message.chat.id,
+                st.thread_id,
+                "Select start hour (UTC)",
+                build_hours_keyboard_with_nav_prompt(true),
+            )
+            .await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_storage.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send hour selection message: {}", e);
+                }
+            }
         }
     } else if data.starts_with("sched_hour:") {
         let hour: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingStep::AwaitingMinute;
             st.hour_utc = Some(hour);
-            bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, "Select start minute (UTC)")
-                .reply_markup(build_minutes_keyboard_with_nav_prompt(true))
-                .await?;
+            
+            // Send new message and capture ID
+            match send_step_message(
+                bot.clone(),
+                message.chat.id,
+                st.thread_id,
+                "Select start minute (UTC)",
+                build_minutes_keyboard_with_nav_prompt(true),
+            )
+            .await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_storage.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send minute selection message: {}", e);
+                }
+            }
         }
     } else if data.starts_with("sched_min:") {
         let minute: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingStep::AwaitingRepeat;
             st.minute_utc = Some(minute);
-            bot_deps.scheduled_storage.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, "Select repeat interval")
-                .reply_markup(build_repeat_keyboard_with_nav_prompt(true))
-                .await?;
+            
+            // Send new message and capture ID
+            match send_step_message(
+                bot.clone(),
+                message.chat.id,
+                st.thread_id,
+                "Select repeat interval",
+                build_repeat_keyboard_with_nav_prompt(true),
+            )
+            .await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_storage.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send repeat selection message: {}", e);
+                }
+            }
         }
     } else if data.starts_with("sched_repeat:") {
         let repeat = match data.split(':').nth(1).unwrap_or("") {
@@ -179,9 +236,14 @@ pub async fn handle_scheduled_prompts_callback(
             _ => RepeatPolicy::Every1h,
         };
         if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete current message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             st.step = PendingStep::AwaitingConfirm;
             st.repeat = Some(repeat);
-            bot_deps.scheduled_storage.put_pending(key, &st)?;
+            
             let summary = summarize(&st);
             let kb = InlineKeyboardMarkup::new(vec![
                 vec![Btn::callback(
@@ -194,13 +256,25 @@ pub async fn handle_scheduled_prompts_callback(
                 ],
             ]);
             bot.answer_callback_query(query.id).await?;
-            bot.edit_message_text(message.chat.id, message.id, summary)
-                .parse_mode(ParseMode::Html)
-                .reply_markup(kb)
-                .await?;
+            
+            // Send new confirmation message and capture ID
+            match send_step_message(bot.clone(), message.chat.id, st.thread_id, &summary, kb).await {
+                Ok(sent_msg) => {
+                    st.current_bot_message_id = Some(sent_msg.id.0);
+                    bot_deps.scheduled_storage.put_pending(key, &st)?;
+                }
+                Err(e) => {
+                    log::error!("Failed to send confirmation message: {}", e);
+                }
+            }
         }
     } else if data == "sched_confirm" {
         if let Some(st) = bot_deps.scheduled_storage.get_pending(key) {
+            // Delete the confirmation message
+            if let Some(current_msg_id) = st.current_bot_message_id {
+                delete_message_safe(&bot, message.chat.id, current_msg_id).await;
+            }
+            
             bot_deps.scheduled_storage.delete_pending(key)?;
             finalize_and_register(*message.clone(), bot.clone(), bot_deps.clone(), st).await?;
             bot.answer_callback_query(query.id).await?;
