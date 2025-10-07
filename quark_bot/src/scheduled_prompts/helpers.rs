@@ -203,14 +203,14 @@ pub async fn send_step_message(
 ) -> Result<teloxide::types::Message, RequestError> {
     use teloxide::prelude::*;
     use teloxide::types::ParseMode;
-    use teloxide::sugar::request::RequestReplyExt;
     
     let mut request = bot.send_message(chat_id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard);
     
+    // For forum topics, use message_thread_id instead of reply_to
     if let Some(thread) = thread_id {
-        request = request.reply_to(MessageId(thread));
+        request = request.message_thread_id(teloxide::types::ThreadId(MessageId(thread)));
     }
     
     request.await

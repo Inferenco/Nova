@@ -269,10 +269,9 @@ pub async fn finalize_and_register(
     let mut request = bot.send_message(msg.chat.id, success_text)
         .parse_mode(ParseMode::Html);
     
-    // If in a thread, send to that thread
+    // For forum topics, use message_thread_id instead of reply_to
     if let Some(thread) = state.thread_id {
-        use teloxide::sugar::request::RequestReplyExt;
-        request = request.reply_to(teloxide::types::MessageId(thread));
+        request = request.message_thread_id(teloxide::types::ThreadId(teloxide::types::MessageId(thread)));
     }
     
     request.await?;

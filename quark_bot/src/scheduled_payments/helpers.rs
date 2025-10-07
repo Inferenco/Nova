@@ -246,6 +246,8 @@ pub async fn send_step_message(
     use teloxide::prelude::*;
     use teloxide::types::ParseMode;
     
+    // Note: Scheduled payments don't currently support thread_id, but keeping signature simple
+    // If thread support is added later, use .message_thread_id() not .reply_to()
     bot.send_message(chat_id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
