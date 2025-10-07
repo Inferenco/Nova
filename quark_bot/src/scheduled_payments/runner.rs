@@ -16,10 +16,7 @@ pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyh
     let storage = ScheduledPaymentsStorage::new(&bot_deps.db)?;
     for item in storage.scheduled.iter() {
         if let Ok((_, ivec)) = item {
-            if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPaymentRecord, _>(
-                &ivec,
-                bincode::config::standard(),
-            ) {
+            if let Ok(mut rec) = serde_json::from_slice::<ScheduledPaymentRecord>(&ivec) {
                 if rec.active {
                     if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await
                     {
