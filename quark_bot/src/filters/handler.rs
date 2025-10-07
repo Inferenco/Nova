@@ -6,7 +6,7 @@ use teloxide::{
 };
 
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard, escape_for_markdown_v2};
+use crate::utils::{self, escape_for_markdown_v2};
 use crate::{
     dependencies::BotDependencies,
     utils::{send_markdown_message, send_message},
@@ -15,7 +15,6 @@ use crate::{
     filters::dto::{
         FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
     },
-    utils::send_html_message,
 };
 
 pub async fn handle_filters_callback(
@@ -176,6 +175,24 @@ async fn start_filter_wizard(
         chat_id.0, bot_deps.filters.account_seed, user_id.0
     );
 
+    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "❌ Cancel",
+        "filters_cancel",
+    )]]);
+
+    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!";
+
+    // Edit the message and capture its ID
+    let bot_message_id = if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+        bot.edit_message_text(message.chat.id, message.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
+            .await?;
+        Some(message.id.0)
+    } else {
+        None
+    };
+
     let wizard_state = PendingFilterWizardState {
         group_id: chat_id.0,
         creator_user_id: user_id.0 as i64,
@@ -184,6 +201,8 @@ async fn start_filter_wizard(
         response: None,
         match_type: MatchType::Contains,       // Default
         response_type: ResponseType::Markdown, // Default
+        current_bot_message_id: bot_message_id,
+        user_message_ids: Vec::new(),
     };
 
     if let Err(e) = bot_deps
@@ -195,20 +214,6 @@ async fn start_filter_wizard(
             .text("❌ Failed to start filter wizard")
             .await?;
         return Ok(());
-    }
-
-    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        "❌ Cancel",
-        "filters_main",
-    )]]);
-
-    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!";
-
-    if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(message.chat.id, message.id, text)
-            .parse_mode(ParseMode::Html)
-            .reply_markup(keyboard)
-            .await?;
     }
 
     bot.answer_callback_query(query.id.clone()).await?;
@@ -573,6 +578,11 @@ async fn confirm_and_create_filter(
                 }
             }
 
+            // Delete the confirmation message
+            if let Some(bot_msg_id) = wizard_state.current_bot_message_id {
+                crate::filters::helpers::delete_message_safe(bot, chat_id, bot_msg_id).await;
+            }
+
             // Clean up wizard state regardless
             if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {
                 log::error!("Failed to remove filter wizard state: {}", e);
@@ -614,20 +624,10 @@ async fn confirm_and_create_filter(
                 response_text
             );
 
-            let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-                "🔍 Back to Filters",
-                "filters_main",
-            )]]);
-
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
-                &query.message
-            {
-                let success_text = success_text;
-                bot.edit_message_text(message.chat.id, message.id, success_text)
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(keyboard)
-                    .await?;
-            }
+            // Send new message with results
+            bot.send_message(chat_id, success_text)
+                .parse_mode(ParseMode::Html)
+                .await?;
 
             bot.answer_callback_query(query.id.clone())
                 .text("✅ Processed triggers")
@@ -658,23 +658,22 @@ async fn cancel_filter_wizard(
         chat_id.0, bot_deps.filters.account_seed, user_id.0
     );
 
+    // Get wizard state and delete current bot message
+    if let Some(wizard_state) = bot_deps.filters.get_pending_settings(&wizard_key) {
+        if let Some(bot_msg_id) = wizard_state.current_bot_message_id {
+            crate::filters::helpers::delete_message_safe(bot, chat_id, bot_msg_id).await;
+        }
+    }
+
     // Clean up wizard state
     if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {
         log::error!("Failed to remove filter wizard state: {}", e);
     }
 
-    // Show cancellation message
-    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        "🔍 Back to Filters",
-        "filters_main",
-    )]]);
-
-    if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(message.chat.id, message.id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
-            .parse_mode(ParseMode::Html)
-            .reply_markup(keyboard)
-            .await?;
-    }
+    // Send cancellation message
+    bot.send_message(chat_id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
+        .parse_mode(ParseMode::Html)
+        .await?;
 
     bot.answer_callback_query(query.id.clone())
         .text("✅ Filter creation cancelled")
@@ -726,6 +725,25 @@ pub async fn handle_message_filters(
                 // Store the trigger(s) as entered
                 st.trigger = Some(text_raw.clone());
                 st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
+
+                // Clean up user message and previous bot message
+                crate::filters::helpers::cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+
+                // Send new step message
+                let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![vec![
+                    teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
+                ]]);
+                let text = "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>*Bold text*</code> works great!\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>";
+
+                match crate::filters::helpers::send_step_message(bot.clone(), msg.chat.id, text, keyboard).await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send step message: {}", e);
+                    }
+                }
+
                 if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
                     log::error!("Failed to save filter wizard state: {}", e);
                     send_message(
@@ -736,27 +754,15 @@ pub async fn handle_message_filters(
                     .await?;
                     return Ok(true);
                 }
-                send_html_message(
-                    msg.clone(),
-                    bot.clone(),
-                    "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>Use Telegram MarkdownV2 (e.g., <code>*bold*</code>, <code>_italic_</code>, <code>`code`</code>) or plain text. Double asterisks <code>**like this**</code> are not supported.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>*Bold text*</code> works great!\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>".to_string(),
-                ).await?;
                 return Ok(true);
             }
             crate::filters::dto::PendingFilterStep::AwaitingResponse => {
                 // Store the response and move to confirmation step
                 st.response = Some(text_raw.clone());
                 st.step = crate::filters::dto::PendingFilterStep::AwaitingConfirm;
-                if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
-                    log::error!("Failed to save filter wizard state: {}", e);
-                    send_message(
-                        msg,
-                        bot.clone(),
-                        "❌ Failed to save filter progress.".to_string(),
-                    )
-                    .await?;
-                    return Ok(true);
-                }
+
+                // Clean up user message and previous bot message
+                crate::filters::helpers::cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
 
                 // Show confirmation with summary
                 let summary = crate::filters::helpers::summarize(&st);
@@ -768,13 +774,25 @@ pub async fn handle_message_filters(
                     teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
                 ]]);
 
-                send_markdown_message_with_keyboard(
-                    bot.clone(),
-                    msg,
-                    KeyboardMarkupType::InlineKeyboardType(keyboard),
-                    &summary,
-                )
-                .await?;
+                match crate::filters::helpers::send_step_message(bot.clone(), msg.chat.id, &summary, keyboard).await {
+                    Ok(sent_msg) => {
+                        st.current_bot_message_id = Some(sent_msg.id.0);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send confirmation message: {}", e);
+                    }
+                }
+
+                if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
+                    log::error!("Failed to save filter wizard state: {}", e);
+                    send_message(
+                        msg,
+                        bot.clone(),
+                        "❌ Failed to save filter progress.".to_string(),
+                    )
+                    .await?;
+                    return Ok(true);
+                }
                 return Ok(true);
             }
             crate::filters::dto::PendingFilterStep::AwaitingConfirm => {
