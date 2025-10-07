@@ -456,6 +456,9 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
             return "❌ Error: 'query' is required for pool search.".to_string();
         }
     };
+
+    let query = &query.replace("$", "");
+
     let network = arguments.get("network").and_then(|v| v.as_str());
     let page = arguments
         .get("page")
