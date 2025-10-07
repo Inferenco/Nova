@@ -509,6 +509,28 @@ impl WelcomeService {
     pub fn account_seed(&self) -> &str {
         &self.account_seed
     }
+
+    pub fn cleanup_expired_wizard_states(&self) -> Result<()> {
+        let mut expired_keys = Vec::new();
+        let now = chrono::Utc::now().timestamp();
+
+        for result in self.pending_db.iter() {
+            if let Ok((key, value)) = result {
+                if let Ok(state) = serde_json::from_slice::<PendingWelcomeWizardState>(&value) {
+                    // Expire wizard states older than 10 minutes
+                    if now - state.created_at > 600 {
+                        expired_keys.push(key);
+                    }
+                }
+            }
+        }
+
+        for key in expired_keys {
+            self.pending_db.remove(&key)?;
+        }
+
+        Ok(())
+    }
 }
 
 

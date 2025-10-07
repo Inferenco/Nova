@@ -465,6 +465,7 @@ async fn start_custom_message_input(
         custom_message: None,
         current_bot_message_id: bot_message_id,
         user_message_ids: Vec::new(),
+        created_at: chrono::Utc::now().timestamp(),
     };
 
     // Store wizard state

@@ -86,4 +86,10 @@ pub struct PendingWelcomeWizardState {
     pub current_bot_message_id: Option<i32>,
     #[serde(default)]
     pub user_message_ids: Vec<i32>,
+    #[serde(default = "default_created_at")]
+    pub created_at: i64, // unix timestamp for expiry
+}
+
+fn default_created_at() -> i64 {
+    chrono::Utc::now().timestamp()
 }
