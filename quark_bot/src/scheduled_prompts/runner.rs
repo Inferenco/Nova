@@ -147,7 +147,7 @@ fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
 
 fn next_n_hourly_at(n_hours: i64, start_hour: u8, start_minute: u8) -> i64 {
     let now = Utc::now();
-    let anchor = Utc
+    let today_anchor = Utc
         .with_ymd_and_hms(
             now.year(),
             now.month(),
@@ -157,14 +157,23 @@ fn next_n_hourly_at(n_hours: i64, start_hour: u8, start_minute: u8) -> i64 {
             0,
         )
         .unwrap();
-    if now <= anchor {
-        return anchor.timestamp();
-    }
+
+    // Find the most recent anchor (could be today or yesterday)
+    let anchor = if now >= today_anchor {
+        today_anchor
+    } else {
+        // Today's anchor is in the future, use yesterday's
+        today_anchor - chrono::Duration::days(1)
+    };
+
+    // Calculate next run based on the step interval from the anchor
     let step = n_hours * 3600;
     let now_ts = now.timestamp();
     let anch_ts = anchor.timestamp();
-    let k = ((now_ts - anch_ts) + step - 1) / step; // ceil division
-    anch_ts + k * step
+    let elapsed = now_ts - anch_ts;
+    let intervals_passed = elapsed / step;
+    let next_ts = anch_ts + (intervals_passed + 1) * step;
+    next_ts
 }
 
 fn next_weekly_at(start_hour: u8, start_minute: u8) -> i64 {
