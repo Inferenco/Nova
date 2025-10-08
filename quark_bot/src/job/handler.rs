@@ -54,9 +54,9 @@ pub fn job_welcome_service_cleanup(welcome_service: WelcomeService, bot: Bot) ->
                 log::error!("Failed to cleanup expired welcome verifications: {}", e);
             }
             
-            // Cleanup expired input states
-            if let Err(e) = welcome_service.cleanup_expired_input_states() {
-                log::error!("Failed to cleanup expired welcome input states: {}", e);
+            // Cleanup expired wizard states
+            if let Err(e) = welcome_service.cleanup_expired_wizard_states() {
+                log::error!("Failed to cleanup expired welcome wizard states: {}", e);
             }
         })
     })

@@ -93,6 +93,10 @@ pub struct PendingFilterWizardState {
     pub response: Option<String>,
     pub match_type: MatchType,
     pub response_type: ResponseType,
+    #[serde(default)]
+    pub current_bot_message_id: Option<i32>,
+    #[serde(default)]
+    pub user_message_ids: Vec<i32>,
 }
 
 #[derive(Debug, Clone)]

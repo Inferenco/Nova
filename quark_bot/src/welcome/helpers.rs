@@ -1,5 +1,6 @@
 use crate::utils::{escape_for_markdown_v2, unescape_markdown};
-use crate::welcome::dto::WelcomeSettings;
+use crate::welcome::dto::{PendingWelcomeWizardState, WelcomeSettings};
+use teloxide::types::ChatId;
 
 pub fn get_default_welcome_message(
     username_markup: &str,
@@ -67,6 +68,39 @@ pub fn is_verification_expired(timestamp: i64) -> bool {
 
 pub fn get_verification_expiry_time(timeout_seconds: u64) -> i64 {
     chrono::Utc::now().timestamp() + timeout_seconds as i64
+}
+
+/// Safely delete a message, logging errors instead of failing
+pub async fn delete_message_safe(bot: &teloxide::Bot, chat_id: ChatId, message_id: i32) {
+    use teloxide::prelude::*;
+    if let Err(e) = bot.delete_message(chat_id, teloxide::types::MessageId(message_id)).await {
+        log::debug!("Failed to delete message {}: {}", message_id, e);
+    }
+}
+
+/// Clean up user messages and current bot message before transitioning to next step
+pub async fn cleanup_and_transition(
+    bot: &teloxide::Bot,
+    state: &mut PendingWelcomeWizardState,
+    chat_id: ChatId,
+    user_msg_id: Option<i32>,
+) {
+    // Delete user message if provided
+    if let Some(msg_id) = user_msg_id {
+        delete_message_safe(bot, chat_id, msg_id).await;
+    }
+
+    // Delete all tracked user messages
+    for msg_id in &state.user_message_ids {
+        delete_message_safe(bot, chat_id, *msg_id).await;
+    }
+    state.user_message_ids.clear();
+
+    // Delete current bot message if it exists
+    if let Some(bot_msg_id) = state.current_bot_message_id {
+        delete_message_safe(bot, chat_id, bot_msg_id).await;
+        state.current_bot_message_id = None;
+    }
 }
 
 #[cfg(test)]
