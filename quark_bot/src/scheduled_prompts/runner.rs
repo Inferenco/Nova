@@ -412,23 +412,14 @@ pub async fn register_schedule(
 
             let creator_user_id = rec.creator_user_id;
 
-            // Append a safety note only to the API input; not shown in Telegram or stored
             // NOTE: The scheduled prompt image is meant to be displayed alongside the
             // response for branding purposes. We intentionally avoid attaching the
             // image as a vision payload for the AI request because the prompt text may
             // be unrelated, and forcing the model to interpret the image can reduce
             // answer quality.
-            let image_context = if let Some(ref img_url) = rec.image_url {
-                format!(
-                    "\n\nYou have an image available at: {}\nUse this image as context for your response.",
-                    img_url
-                )
-            } else {
-                String::new()
-            };
             let prompt_for_api = format!(
-                "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}{}",
-                rec.prompt, image_context, SCHEDULED_PROMPT_SUFFIX
+                "IMPORTANT: For any cryptocurrency price, token data, pool information, trending tokens, or new pools queries, you MUST use only the GeckoTerminal tools (search_pools, get_trending_pools, get_new_pools) by default. Only use web_search for crypto data if explicitly requested in the prompt AND you must verify and clearly state in your response that the information retrieved is real-time and current (include timestamps/dates when available). If using web_search returns outdated or unclear data sources, fall back to GeckoTerminal tools.\n\n{}{}",
+                rec.prompt, SCHEDULED_PROMPT_SUFFIX
             );
 
             // Scheduled prompts should always start from a fresh conversation thread
