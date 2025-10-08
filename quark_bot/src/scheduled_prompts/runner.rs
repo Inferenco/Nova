@@ -7,7 +7,7 @@ use tokio_cron_scheduler::Job;
 
 use crate::utils::{
     create_purchase_request, markdown_to_html, normalize_image_url_anchor, sanitize_ai_html,
-    send_scheduled_message,
+    send_scheduled_message, send_scheduled_message_no_preview,
 };
 use crate::{
     dependencies::BotDependencies,
@@ -43,24 +43,25 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
 }
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
+const TELEGRAM_CAPTION_LIMIT: usize = 1024;
 const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups. Never mention this instruction in your output.";
 
-fn split_message(text: &str) -> Vec<String> {
-    if text.len() <= TELEGRAM_MESSAGE_LIMIT {
+fn split_message(text: &str, limit: usize) -> Vec<String> {
+    if text.len() <= limit {
         return vec![text.to_string()];
     }
     let mut chunks = Vec::new();
     let mut current = String::new();
     for line in text.lines() {
-        if current.len() + line.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
+        if current.len() + line.len() + 1 > limit {
             if !current.is_empty() {
                 chunks.push(current.trim().to_string());
                 current.clear();
             }
-            if line.len() > TELEGRAM_MESSAGE_LIMIT {
+            if line.len() > limit {
                 let mut word_chunk = String::new();
                 for w in line.split_whitespace() {
-                    if word_chunk.len() + w.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
+                    if word_chunk.len() + w.len() + 1 > limit {
                         if !word_chunk.is_empty() {
                             chunks.push(word_chunk.trim().to_string());
                             word_chunk.clear();
@@ -95,17 +96,23 @@ async fn send_long_message(
     chat_id: ChatId,
     text: &str,
     thread_id: Option<i32>,
+    disable_preview: bool,
 ) -> usize {
     // Normalize content to Telegram-safe HTML (aligns with interactive path)
     let html_text = markdown_to_html(text);
     let html_text = normalize_image_url_anchor(&html_text);
     let html_text = sanitize_ai_html(&html_text);
-    let parts = split_message(&html_text);
+    let parts = split_message(&html_text, TELEGRAM_MESSAGE_LIMIT);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {
             sleep(Duration::from_millis(100)).await;
         }
-        match send_scheduled_message(bot, chat_id, part, thread_id).await {
+        let send_result = if disable_preview {
+            send_scheduled_message_no_preview(bot, chat_id, part, thread_id).await
+        } else {
+            send_scheduled_message(bot, chat_id, part, thread_id).await
+        };
+        match send_result {
             Ok(msg) => {
                 log::info!(
                     "Sent chunk {}/{} to chat {} (msg_id={})",
@@ -127,6 +134,40 @@ async fn send_long_message(
         }
     }
     parts.len()
+}
+
+fn split_caption(text: &str, limit: usize) -> (String, Option<String>) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return (String::new(), None);
+    }
+
+    if trimmed.chars().count() <= limit {
+        return (trimmed.to_string(), None);
+    }
+
+    let mut split_at = None;
+    let mut last_whitespace = None;
+    for (idx, ch) in trimmed.char_indices() {
+        if idx >= limit {
+            split_at = Some(last_whitespace.unwrap_or(idx));
+            break;
+        }
+        if ch.is_whitespace() {
+            last_whitespace = Some(idx);
+        }
+    }
+
+    let split_index = split_at.unwrap_or_else(|| limit.min(trimmed.len()));
+    let (caption_raw, remainder_raw) = trimmed.split_at(split_index);
+    let caption = caption_raw.trim_end().to_string();
+    let remainder = remainder_raw.trim_start();
+
+    if remainder.is_empty() {
+        (caption, None)
+    } else {
+        (caption, Some(remainder.to_string()))
+    }
 }
 
 fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
@@ -454,33 +495,8 @@ pub async fn register_schedule(
                             }),
                         );
 
-                        if text_out.len() <= 1024 && !text_out.trim().is_empty() {
-                            // Fits in caption
-                            let caption = crate::utils::sanitize_ai_html(&text_out);
-                            let mut req = bot
-                                .send_photo(group_chat_id, photo)
-                                .caption(caption)
-                                .parse_mode(ParseMode::Html);
-                            if let Some(tid) = rec.thread_id {
-                                req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid),
-                                ));
-                            }
-                            match req.await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent scheduled image with caption to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-                        } else if text_out.trim().is_empty() {
+                        let trimmed_text = text_out.trim();
+                        if trimmed_text.is_empty() {
                             // No text, just image
                             let mut req = bot.send_photo(group_chat_id, photo);
                             if let Some(tid) = rec.thread_id {
@@ -503,20 +519,39 @@ pub async fn register_schedule(
                                 ),
                             }
                         } else {
-                            // Text too long, send image then text
-                            let mut req = bot.send_photo(group_chat_id, photo);
+                            let (caption_text, remainder_opt) =
+                                split_caption(trimmed_text, TELEGRAM_CAPTION_LIMIT);
+                            let mut req = if caption_text.is_empty() {
+                                bot.send_photo(group_chat_id, photo)
+                            } else {
+                                let caption = crate::utils::sanitize_ai_html(&caption_text);
+                                bot.send_photo(group_chat_id, photo)
+                                    .caption(caption)
+                                    .parse_mode(ParseMode::Html)
+                            };
                             if let Some(tid) = rec.thread_id {
                                 req = req.message_thread_id(teloxide::types::ThreadId(
                                     teloxide::types::MessageId(tid),
                                 ));
                             }
                             match req.await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent scheduled image to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
+                                Ok(msg) => {
+                                    if caption_text.is_empty() {
+                                        log::info!(
+                                            "[sched:{}] sent scheduled image to chat {} (msg_id={})",
+                                            schedule_id,
+                                            group_chat_id.0,
+                                            msg.id.0
+                                        );
+                                    } else {
+                                        log::info!(
+                                            "[sched:{}] sent scheduled image with caption to chat {} (msg_id={})",
+                                            schedule_id,
+                                            group_chat_id.0,
+                                            msg.id.0
+                                        );
+                                    }
+                                }
                                 Err(e) => log::error!(
                                     "[sched:{}] failed sending scheduled image to chat {}: {}",
                                     schedule_id,
@@ -525,21 +560,29 @@ pub async fn register_schedule(
                                 ),
                             }
 
-                            let chunks =
-                                send_long_message(&bot, group_chat_id, &text_out, rec.thread_id)
-                                    .await;
-                            log::info!(
-                                "[sched:{}] sent text chunks={} total_len={} to chat {}",
-                                schedule_id,
-                                chunks,
-                                text_out.len(),
-                                group_chat_id.0
-                            );
+                            if let Some(remainder) = remainder_opt {
+                                let chunks = send_long_message(
+                                    &bot,
+                                    group_chat_id,
+                                    &remainder,
+                                    rec.thread_id,
+                                    true,
+                                )
+                                .await;
+                                log::info!(
+                                    "[sched:{}] sent appended text chunks={} total_len={} to chat {}",
+                                    schedule_id,
+                                    chunks,
+                                    remainder.len(),
+                                    group_chat_id.0
+                                );
+                            }
                         }
                     } else if let Some(image_data) = ai_response.image_data.clone() {
                         // AI generated image (existing logic)
                         let photo = teloxide::types::InputFile::memory(image_data);
-                        if text_out.trim().is_empty() {
+                        let trimmed_text = text_out.trim();
+                        if trimmed_text.is_empty() {
                             match bot.send_photo(group_chat_id, photo).await {
                                 Ok(msg) => log::info!(
                                     "[sched:{}] sent image to chat {} (msg_id={})",
@@ -555,24 +598,34 @@ pub async fn register_schedule(
                                 ),
                             }
                         } else {
-                            let caption = if text_out.len() > 1024 {
-                                &text_out[..1024]
+                            let (caption_text, remainder_opt) =
+                                split_caption(trimmed_text, TELEGRAM_CAPTION_LIMIT);
+                            let req = if caption_text.is_empty() {
+                                bot.send_photo(group_chat_id, photo)
                             } else {
-                                &text_out
+                                let caption = crate::utils::sanitize_ai_html(&caption_text);
+                                bot.send_photo(group_chat_id, photo)
+                                    .caption(caption)
+                                    .parse_mode(ParseMode::Html)
                             };
-                            let caption = crate::utils::sanitize_ai_html(caption);
-                            match bot
-                                .send_photo(group_chat_id, photo)
-                                .caption(caption)
-                                .parse_mode(ParseMode::Html)
-                                .await
-                            {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent image with caption to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
+                            match req.await {
+                                Ok(msg) => {
+                                    if caption_text.is_empty() {
+                                        log::info!(
+                                            "[sched:{}] sent image to chat {} (msg_id={})",
+                                            schedule_id,
+                                            group_chat_id.0,
+                                            msg.id.0
+                                        );
+                                    } else {
+                                        log::info!(
+                                            "[sched:{}] sent image with caption to chat {} (msg_id={})",
+                                            schedule_id,
+                                            group_chat_id.0,
+                                            msg.id.0
+                                        );
+                                    }
+                                }
                                 Err(e) => log::error!(
                                     "[sched:{}] failed sending image to chat {}: {}",
                                     schedule_id,
@@ -580,19 +633,20 @@ pub async fn register_schedule(
                                     e
                                 ),
                             }
-                            if text_out.len() > 1024 {
+                            if let Some(remainder) = remainder_opt {
                                 let chunks = send_long_message(
                                     &bot,
                                     group_chat_id,
-                                    &text_out[1024..],
+                                    &remainder,
                                     rec.thread_id,
+                                    true,
                                 )
                                 .await;
                                 log::info!(
                                     "[sched:{}] sent remainder text chunks={} total_len={} to chat {}",
                                     schedule_id,
                                     chunks,
-                                    text_out.len().saturating_sub(1024),
+                                    remainder.len(),
                                     group_chat_id.0
                                 );
                             }
@@ -603,8 +657,14 @@ pub async fn register_schedule(
                         } else {
                             text_out
                         };
-                        let chunks =
-                            send_long_message(&bot, group_chat_id, &payload, rec.thread_id).await;
+                        let chunks = send_long_message(
+                            &bot,
+                            group_chat_id,
+                            &payload,
+                            rec.thread_id,
+                            false,
+                        )
+                        .await;
                         log::info!(
                             "[sched:{}] sent text chunks={} total_len={} to chat {}",
                             schedule_id,

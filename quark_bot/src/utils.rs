@@ -10,7 +10,10 @@ use teloxide::{
     Bot, RequestError,
     prelude::*,
     sugar::request::RequestReplyExt,
-    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, UserId},
+    types::{
+        ChatId, InlineKeyboardMarkup, KeyboardMarkup, LinkPreviewOptions, MessageId, ParseMode,
+        UserId,
+    },
 };
 
 use crate::dependencies::BotDependencies;
@@ -776,11 +779,12 @@ pub async fn send_markdown_message(
     Ok(())
 }
 
-pub async fn send_scheduled_message(
+async fn send_scheduled_message_inner(
     bot: &Bot,
     chat_id: ChatId,
     text: &str,
     thread_id: Option<i32>,
+    disable_preview: bool,
 ) -> Result<Message, RequestError> {
     // For scheduled messages, send to thread if thread_id is available
     let mut request = bot
@@ -791,7 +795,36 @@ pub async fn send_scheduled_message(
         request = request.reply_to(MessageId(thread));
     }
 
+    if disable_preview {
+        let options = LinkPreviewOptions {
+            is_disabled: true,
+            url: None,
+            prefer_small_media: false,
+            prefer_large_media: false,
+            show_above_text: false,
+        };
+        request = request.link_preview_options(options);
+    }
+
     request.await
+}
+
+pub async fn send_scheduled_message(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+) -> Result<Message, RequestError> {
+    send_scheduled_message_inner(bot, chat_id, text, thread_id, false).await
+}
+
+pub async fn send_scheduled_message_no_preview(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+) -> Result<Message, RequestError> {
+    send_scheduled_message_inner(bot, chat_id, text, thread_id, true).await
 }
 
 pub async fn send_markdown_message_with_keyboard(
