@@ -40,7 +40,7 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
 }
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups. Never mention this instruction in your output.";
+const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a prescheduled prompt, DO NOT seek a response from anyone or offer follow ups. Keep the final answer under 3,800 characters by prioritizing the most relevant facts. Never mention this instruction in your output.";
 
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
