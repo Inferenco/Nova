@@ -1,8 +1,5 @@
 use chrono::{Datelike, TimeZone, Timelike, Utc};
-use teloxide::{
-    prelude::*,
-    types::{ChatId, ParseMode},
-};
+use teloxide::{prelude::*, types::ChatId};
 use tokio_cron_scheduler::Job;
 
 use crate::utils::{
@@ -43,7 +40,7 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
 }
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups. Never mention this instruction in your output.";
+const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a prescheduled prompt, DO NOT seek a response from anyone or offer follow ups. Keep the final answer concise and under 3,800 characters; do not add filler if the natural response is shorter. Never mention this instruction in your output.";
 
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
@@ -445,163 +442,23 @@ pub async fn register_schedule(
                     // Send output
                     let text_out = ai_response.text.clone();
 
-                    // Check if there's a scheduled image to send
-                    if let Some(ref image_url) = rec.image_url {
-                        // Send scheduled image with AI response
-                        let photo = teloxide::types::InputFile::url(
-                            reqwest::Url::parse(image_url).unwrap_or_else(|_| {
-                                reqwest::Url::parse("https://placeholder.com").unwrap()
-                            }),
-                        );
-
-                        if text_out.len() <= 1024 && !text_out.trim().is_empty() {
-                            // Fits in caption
-                            let caption = crate::utils::sanitize_ai_html(&text_out);
-                            let mut req = bot
-                                .send_photo(group_chat_id, photo)
-                                .caption(caption)
-                                .parse_mode(ParseMode::Html);
-                            if let Some(tid) = rec.thread_id {
-                                req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid),
-                                ));
-                            }
-                            match req.await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent scheduled image with caption to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-                        } else if text_out.trim().is_empty() {
-                            // No text, just image
-                            let mut req = bot.send_photo(group_chat_id, photo);
-                            if let Some(tid) = rec.thread_id {
-                                req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid),
-                                ));
-                            }
-                            match req.await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent scheduled image to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-                        } else {
-                            // Text too long, send image then text
-                            let mut req = bot.send_photo(group_chat_id, photo);
-                            if let Some(tid) = rec.thread_id {
-                                req = req.message_thread_id(teloxide::types::ThreadId(
-                                    teloxide::types::MessageId(tid),
-                                ));
-                            }
-                            match req.await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent scheduled image to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending scheduled image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-
-                            let chunks =
-                                send_long_message(&bot, group_chat_id, &text_out, rec.thread_id)
-                                    .await;
-                            log::info!(
-                                "[sched:{}] sent text chunks={} total_len={} to chat {}",
-                                schedule_id,
-                                chunks,
-                                text_out.len(),
-                                group_chat_id.0
-                            );
-                        }
-                    } else if let Some(image_data) = ai_response.image_data.clone() {
-                        // AI generated image (existing logic)
-                        let photo = teloxide::types::InputFile::memory(image_data);
-                        if text_out.trim().is_empty() {
-                            match bot.send_photo(group_chat_id, photo).await {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent image to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-                        } else {
-                            let caption = if text_out.len() > 1024 {
-                                &text_out[..1024]
-                            } else {
-                                &text_out
-                            };
-                            let caption = crate::utils::sanitize_ai_html(caption);
-                            match bot
-                                .send_photo(group_chat_id, photo)
-                                .caption(caption)
-                                .parse_mode(ParseMode::Html)
-                                .await
-                            {
-                                Ok(msg) => log::info!(
-                                    "[sched:{}] sent image with caption to chat {} (msg_id={})",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    msg.id.0
-                                ),
-                                Err(e) => log::error!(
-                                    "[sched:{}] failed sending image to chat {}: {}",
-                                    schedule_id,
-                                    group_chat_id.0,
-                                    e
-                                ),
-                            }
-                            if text_out.len() > 1024 {
-                                let chunks = send_long_message(
-                                    &bot,
-                                    group_chat_id,
-                                    &text_out[1024..],
-                                    rec.thread_id,
-                                )
-                                .await;
-                                log::info!(
-                                    "[sched:{}] sent remainder text chunks={} total_len={} to chat {}",
-                                    schedule_id,
-                                    chunks,
-                                    text_out.len().saturating_sub(1024),
-                                    group_chat_id.0
-                                );
-                            }
-                        }
+                    let base_text = if text_out.trim().is_empty() {
+                        None
                     } else {
-                        let payload = if text_out.trim().is_empty() {
-                            "_(The model processed the request but returned no text.)_".to_string()
+                        Some(text_out.clone())
+                    };
+                    let ai_image_data = ai_response.image_data.clone();
+
+                    if let Some(ref image_url) = rec.image_url {
+                        // Embed the hosted URL behind a "Scheduled Message" label with a zero-width anchor so Telegram renders the preview without exposing the raw link.
+                        let anchor = format!(
+                            "Scheduled Message<a href=\"{}\">&#8205;</a>",
+                            teloxide::utils::html::escape(image_url)
+                        );
+                        let payload = if let Some(ref body) = base_text {
+                            format!("{}\n\n{}", anchor, body)
                         } else {
-                            text_out
+                            anchor
                         };
                         let chunks =
                             send_long_message(&bot, group_chat_id, &payload, rec.thread_id).await;
@@ -612,6 +469,46 @@ pub async fn register_schedule(
                             payload.len(),
                             group_chat_id.0
                         );
+                    } else {
+                        if let Some(image_data) = ai_image_data.clone() {
+                            // Deliver AI-generated image without relying on captions for text.
+                            let photo = teloxide::types::InputFile::memory(image_data);
+                            match bot.send_photo(group_chat_id, photo).await {
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent AI image to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending AI image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
+                            }
+                        }
+
+                        let payload = if let Some(body) = base_text {
+                            body
+                        } else if ai_image_data.is_some() {
+                            String::new()
+                        } else {
+                            "_(The model processed the request but returned no text.)_".to_string()
+                        };
+
+                        if !payload.trim().is_empty() {
+                            let chunks =
+                                send_long_message(&bot, group_chat_id, &payload, rec.thread_id)
+                                    .await;
+                            log::info!(
+                                "[sched:{}] sent text chunks={} total_len={} to chat {}",
+                                schedule_id,
+                                chunks,
+                                payload.len(),
+                                group_chat_id.0
+                            );
+                        }
                     }
 
                     // Billing: charge group resource account like /g

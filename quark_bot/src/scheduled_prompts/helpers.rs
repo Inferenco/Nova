@@ -7,7 +7,10 @@ use crate::scheduled_prompts::dto::{PendingStep, PendingWizardState, RepeatPolic
 pub fn summarize(state: &PendingWizardState) -> String {
     let prompt = state.prompt.as_deref().unwrap_or("");
     let image_info = if let Some(url) = &state.image_url {
-        format!("\n\n📷 Image: <a href=\"{}\">View Image</a>", url)
+        format!(
+            "\n\n📷 Image: <a href=\"{}\">View Image</a>",
+            teloxide::utils::html::escape(url)
+        )
     } else {
         String::new()
     };
@@ -215,5 +218,4 @@ pub async fn send_step_message(
     
     request.await
 }
-
 
