@@ -325,7 +325,7 @@ pub async fn handle_message_scheduled_prompts(
                                         .to_string()
                                 });
                                 let warn = format!(
-                                    "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Common fixes:</b>\n• For token prices: Specify a network (e.g., \"Show WSOH price on BSC\")\n• For trending pools: Add network (e.g., \"Show trending pools on Aptos\")\n• For new pools: Include network (e.g., \"Show new pools on Solana\")\n\n<b>✅ Always allowed:</b> Time queries, fear & greed index, weather, general info\n\n<b>❌ Never allowed:</b> Payments, withdrawals, DAO creation, user interactions\n\nPlease send a new prompt with the network specified.",
+                                    "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Common fixes:</b>\n• For token prices: Specify a network (e.g., \"Show WSOH price on BSC\")\n• For trending pools: Add network (e.g., \"Show trending pools on Aptos\")\n• For new pools: Include network (e.g., \"Show new pools on Solana\")\n\n<b>✅ Always allowed:</b> Time queries, fear &amp; greed index, weather, general info\n\n<b>❌ Never allowed:</b> Payments, withdrawals, DAO creation, user interactions\n\nPlease send a new prompt with the network specified.",
                                     teloxide::utils::html::escape(&reason)
                                 );
                                 crate::utils::send_html_message(msg.clone(), bot, warn).await?;
