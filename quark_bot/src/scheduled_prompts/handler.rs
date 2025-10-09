@@ -325,10 +325,10 @@ pub async fn handle_message_scheduled_prompts(
                                         .to_string()
                                 });
                                 let warn = format!(
-                                    "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
+                                    "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Common fixes:</b>\n• For token prices: Specify a network (e.g., \"Show WSOH price on BSC\")\n• For trending pools: Add network (e.g., \"Show trending pools on Aptos\")\n• For new pools: Include network (e.g., \"Show new pools on Solana\")\n\n<b>✅ Always allowed:</b> Time queries, fear & greed index, weather, general info\n\n<b>❌ Never allowed:</b> Payments, withdrawals, DAO creation, user interactions\n\nPlease send a new prompt with the network specified.",
                                     teloxide::utils::html::escape(&reason)
                                 );
-                                send_message(msg.clone(), bot, warn).await?;
+                                crate::utils::send_html_message(msg.clone(), bot, warn).await?;
                                 // Do not advance wizard; let user try again by sending a new prompt
                                 return Ok(true);
                             }
