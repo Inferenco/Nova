@@ -459,7 +459,14 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
 
     let query = &query.replace("$", "");
 
-    let network = arguments.get("network").and_then(|v| v.as_str());
+    let network = match arguments.get("network").and_then(|v| v.as_str()) {
+        Some(net) if !net.trim().is_empty() => net,
+        _ => {
+            log::error!("Pool search called without required network parameter");
+            return "❌ Error: 'network' is required for pool search to avoid token confusion.".to_string();
+        }
+    };
+
     let page = arguments
         .get("page")
         .and_then(|v| v.as_u64())
@@ -467,16 +474,12 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
         .max(1);
 
     // Construct GeckoTerminal API URL
-    let mut url = format!(
-        "https://api.geckoterminal.com/api/v2/search/pools?query={}&page={}",
+    let url = format!(
+        "https://api.geckoterminal.com/api/v2/search/pools?query={}&network={}&page={}&include=base_token,quote_token,dex",
         urlencoding::encode(query),
+        urlencoding::encode(network),
         page
     );
-
-    if let Some(net) = network {
-        url.push_str(&format!("&network={}", urlencoding::encode(net)));
-    }
-    url.push_str("&include=base_token,quote_token,dex");
 
     // Make HTTP request
     let client = reqwest::Client::new();
@@ -491,7 +494,7 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => {
-                        let result = format_search_pools_response(&data, query, network);
+                        let result = format_search_pools_response(&data, query, Some(network));
                         if result.trim().is_empty() {
                             format!(
                                 "🔍 No pools found for query '{}'. The API returned valid data but no pools matched the criteria.",

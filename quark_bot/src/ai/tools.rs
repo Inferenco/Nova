@@ -129,7 +129,7 @@ pub fn get_trending_pools_tool() -> Tool {
 pub fn get_search_pools_tool() -> Tool {
     Tool::function(
         "search_pools",
-        "Search for DEX pools on GeckoTerminal by text, token symbol, contract address, or pool address. Curate results sized by verbosity (Low: up to 5, Medium: up to 8, High: up to 10). For each item include name/symbol, 1–2 key stats, and a link. Do not dump raw JSON.",
+        "Search for DEX pools on GeckoTerminal by text, token symbol, contract address, or pool address. MANDATORY: Always specify the network parameter to avoid confusion between different tokens with similar names. When multiple pools are returned, prioritize the pool with the highest liquidity (reserve_in_usd) that is paired with either the network's native token (e.g., BNB for BSC, SOL for Solana, ETH for Ethereum) or stablecoins (USDT/USDC). This ensures the most accurate and reliable pricing. Curate results sized by verbosity (Low: up to 5, Medium: up to 8, High: up to 10). For each item include name/symbol, 1–2 key stats, and a link. Do not dump raw JSON.",
         json!({
             "type": "object",
             "properties": {
@@ -139,7 +139,7 @@ pub fn get_search_pools_tool() -> Tool {
                 },
                 "network": {
                     "type": "string",
-                    "description": "(Optional) Restrict results to one chain (slug as used on GeckoTerminal). E.g. 'aptos', 'sui' 'ethereum', 'solana', 'base'"
+                    "description": "REQUIRED: Blockchain network identifier to restrict results to one chain. Prevents confusion between tokens with similar names. Use: 'bsc' for Binance Smart Chain, 'solana' for Solana, 'eth' for Ethereum, 'aptos' for Aptos, 'sui' for Sui, 'base' for Base, etc."
                 },
                 "page": {
                     "type": "integer",
@@ -148,7 +148,7 @@ pub fn get_search_pools_tool() -> Tool {
                     "default": 1
                 }
             },
-            "required": ["query"],
+            "required": ["query", "network"],
             "additionalProperties": false
         }),
     )
