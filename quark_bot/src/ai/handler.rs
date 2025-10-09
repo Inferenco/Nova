@@ -602,6 +602,11 @@ impl AI {
 
         // Extract text and potentially image data from the final response
         let mut reply = current_response.output_text();
+        
+        // Fix literal \n escape sequences that sometimes appear in AI responses
+        // This handles cases where tool outputs or AI-generated text contains escaped newlines
+        reply = reply.replace("\\n", "\n");
+        
         let response_id = current_response.id().to_string();
 
         // Save response ID for future conversation context
@@ -1007,6 +1012,11 @@ impl AI {
         }
 
         let mut reply = current_response.output_text();
+        
+        // Fix literal \n escape sequences that sometimes appear in AI responses
+        // This handles cases where tool outputs or AI-generated text contains escaped newlines
+        reply = reply.replace("\\n", "\n");
+        
         let new_response_id = current_response.id().to_string();
 
         let mut image_data: Option<Vec<u8>> = None;
