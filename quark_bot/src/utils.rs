@@ -10,7 +10,7 @@ use teloxide::{
     Bot, RequestError,
     prelude::*,
     sugar::request::RequestReplyExt,
-    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, UserId},
+    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, ThreadId, UserId},
 };
 
 use crate::dependencies::BotDependencies;
@@ -788,7 +788,7 @@ pub async fn send_scheduled_message(
         .parse_mode(ParseMode::Html);
 
     if let Some(thread) = thread_id {
-        request = request.reply_to(MessageId(thread));
+        request = request.message_thread_id(ThreadId(MessageId(thread)));
     }
 
     request.await
