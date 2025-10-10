@@ -1,13 +1,14 @@
 use crate::ai::actions::{
     execute_fear_and_greed_index, execute_get_recent_messages_for_chat, execute_get_time,
-    execute_new_pools, execute_search_pools, execute_trending_pools,
+    execute_new_pools, execute_search_pools, execute_token_price, execute_trending_pools,
 };
 use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
 use crate::ai::tools::{
     execute_custom_tool, get_all_custom_tools, get_fear_and_greed_index_tool, get_new_pools_tool,
-    get_recent_messages_tool, get_search_pools_tool, get_time_tool, get_trending_pools_tool,
+    get_recent_messages_tool, get_search_pools_tool, get_time_tool, get_token_price_tool,
+    get_trending_pools_tool,
 };
 use crate::dependencies::BotDependencies;
 use crate::payment::dto::PaymentPrefs;
@@ -480,7 +481,7 @@ impl AI {
                 log::info!("Tool call found: {} with call_id: {}", tc.name, tc.call_id);
             }
 
-            // Filter for custom function calls (get_balance, get_wallet_address, withdraw_funds, fund_account, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index, get_pay_users, get_recent_messages)
+            // Filter for custom function calls (get_balance, get_wallet_address, withdraw_funds, fund_account, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index, get_token_price, get_pay_users, get_recent_messages)
             let custom_tool_calls: Vec<_> = tool_calls
                 .iter()
                 .filter(|tc| {
@@ -493,6 +494,7 @@ impl AI {
                         || tc.name == "get_new_pools"
                         || tc.name == "get_current_time"
                         || tc.name == "get_fear_and_greed_index"
+                        || tc.name == "get_token_price"
                         || tc.name == "get_pay_users"
                         || tc.name == "create_proposal"
                         || tc.name == "get_recent_messages"
@@ -842,6 +844,7 @@ impl AI {
         tools.push(get_trending_pools_tool());
         tools.push(get_search_pools_tool());
         tools.push(get_new_pools_tool());
+        tools.push(get_token_price_tool());
         tools.push(get_recent_messages_tool());
 
         // Label for per-schedule conversation identity (Responses API max length: 64)
@@ -933,6 +936,7 @@ impl AI {
                         || tc.name == "get_trending_pools"
                         || tc.name == "search_pools"
                         || tc.name == "get_new_pools"
+                        || tc.name == "get_token_price"
                         || tc.name == "get_recent_messages"
                 })
                 .collect();
@@ -955,6 +959,7 @@ impl AI {
                         "get_trending_pools" => execute_trending_pools(&args_value).await,
                         "search_pools" => execute_search_pools(&args_value).await,
                         "get_new_pools" => execute_new_pools(&args_value).await,
+                        "get_token_price" => execute_token_price(&args_value).await,
                         "get_recent_messages" => {
                             let chat_id_i64: i64 = group_id.parse().unwrap_or(0);
                             let chat_id = teloxide::types::ChatId(chat_id_i64 as i64);

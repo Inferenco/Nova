@@ -87,7 +87,7 @@ pub async fn handle_scheduleprompt_command(
         user_message_ids: Vec::new(),
     };
 
-    let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
+    let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Allowed: market data via GeckoTerminal and BitcoinTry exchange, time lookups, fear & greed index, group recaps.\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
     // First step: show Cancel only
     let kb = build_nav_keyboard_prompt(false);

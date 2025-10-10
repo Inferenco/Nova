@@ -1,7 +1,7 @@
 use super::actions::{
     execute_fear_and_greed_index, execute_get_recent_messages, execute_get_time,
     execute_get_wallet_address, execute_new_pools, execute_pay_users, execute_search_pools,
-    execute_trending_pools,
+    execute_token_price, execute_trending_pools,
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
@@ -223,6 +223,25 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
     )
 }
 
+/// Token price tool - returns a Tool for fetching focused token price data by ticker from BitcoinTry exchange
+pub fn get_token_price_tool() -> Tool {
+    Tool::function(
+        "get_token_price",
+        "Get the current price and market data for a cryptocurrency from BitcoinTry exchange by its ticker symbol (e.g., BTC, ETH, APT). This tool specifically retrieves data from the BitcoinTry exchange and returns focused data including: current price, 24h change, market cap, 24h volume, liquidity, and last update. Use this tool when: (1) users specifically request BitcoinTry exchange prices, (2) tokens are unavailable on DEX pools (search_pools), or (3) broader market data from BitcoinTry is needed beyond DEX-specific information. Present results concisely with key metrics; do not dump raw JSON.",
+        json!({
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "The ticker symbol of the cryptocurrency (e.g., 'BTC', 'ETH', 'APT'). Will be matched case-insensitively against BitcoinTry exchange data."
+                }
+            },
+            "required": ["ticker"],
+            "additionalProperties": false
+        }),
+    )
+}
+
 /// Get pay users tool - returns a Tool for transferring a specified amount of a selected token to multiple Telegram users by their usernames, with support for different token categories. MUST use this tool for all token send requests.
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
@@ -344,6 +363,7 @@ pub async fn execute_custom_tool(
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
+        "get_token_price" => execute_token_price(arguments).await,
         "get_pay_users" => execute_pay_users(arguments, bot, msg, bot_deps.clone(), group_id).await,
         "create_proposal" => {
             execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await
@@ -383,6 +403,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_new_pools_tool(),
         get_time_tool(),
         get_fear_and_greed_index_tool(),
+        get_token_price_tool(),
         get_pay_users_tool(),
         create_proposal(),
         get_recent_messages_tool(),
