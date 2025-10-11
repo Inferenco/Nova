@@ -1163,6 +1163,254 @@ fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
     }
 }
 
+/// Execute token price fetch from BitcoinTry
+pub async fn execute_price_by_bitcointry(arguments: &serde_json::Value) -> String {
+    log::info!("Executing get token price tool");
+    log::info!("Arguments: {:?}", arguments);
+
+    // Extract and validate ticker parameter
+    let ticker = match arguments.get("ticker").and_then(|v| v.as_str()) {
+        Some(t) if !t.trim().is_empty() => t.trim().to_uppercase(),
+        _ => {
+            log::error!("Token price called without required ticker parameter");
+            return "❌ Error: 'ticker' parameter is required (e.g., 'BTC', 'ETH', 'APT').".to_string();
+        }
+    };
+
+    log::info!("Fetching price for ticker: {}", ticker);
+
+    // Call BitcoinTry API
+    let url = "https://api.bitcointry.com/api/v1/summary";
+    let client = reqwest::Client::new();
+
+    match client
+        .get(url)
+        .header("Accept", "application/json")
+        .header("User-Agent", "QuarkBot/1.0")
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => {
+                        let result = format_price_response_by_bitcointry(&data, &ticker);
+                        if result.trim().is_empty() {
+                            format!(
+                                "🔍 No token found with ticker '{}'. Please verify the symbol and try again.",
+                                ticker
+                            )
+                        } else {
+                            result
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to parse BitcoinTry API response: {}", e);
+                        format!("❌ Error parsing API response: {}", e)
+                    }
+                }
+            } else if response.status() == 404 {
+                log::error!("BitcoinTry API returned 404");
+                "❌ Token price data not available at this time.".to_string()
+            } else if response.status() == 429 {
+                log::error!("Rate limit exceeded for BitcoinTry API");
+                "⚠️ Rate limit exceeded. Please try again later.".to_string()
+            } else {
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                log::error!(
+                    "BitcoinTry API request failed with status: {} - {}",
+                    status,
+                    error_text
+                );
+                format!(
+                    "❌ API request failed with status: {} - {}",
+                    status, error_text
+                )
+            }
+        }
+        Err(e) => {
+            log::error!("Network error when calling BitcoinTry API: {}", e);
+            format!("❌ Network error when calling BitcoinTry API: {}", e)
+        }
+    }
+}
+
+/// Format the token price response from BitcoinTry API
+fn format_price_response_by_bitcointry(data: &serde_json::Value, ticker: &str) -> String {
+    // Parse the array response
+    let entries = match data.as_array() {
+        Some(arr) => arr,
+        None => {
+            log::error!("BitcoinTry API did not return an array");
+            return "❌ Unexpected API response format.".to_string();
+        }
+    };
+
+    if entries.is_empty() {
+        log::info!("BitcoinTry API returned empty array");
+        return format!("🔍 No token data available for '{}'.", ticker);
+    }
+
+    log::info!("BitcoinTry API returned {} entries", entries.len());
+    
+    // Debug: Log first few base_currency values
+    for (i, entry) in entries.iter().take(5).enumerate() {
+        if let Some(base_curr) = entry.get("base_currency").and_then(|v| v.as_str()) {
+            log::info!("Entry {}: base_currency = '{}'", i, base_curr);
+        }
+    }
+
+    // Filter entries by base_currency (exact uppercase match)
+    let mut matches: Vec<&serde_json::Value> = entries
+        .iter()
+        .filter(|entry| {
+            let base_currency = entry
+                .get("base_currency")
+                .and_then(|v| v.as_str());
+            
+            if let Some(base_curr) = base_currency {
+                let matches = base_curr == ticker;
+                log::info!("Comparing '{}' == '{}': {}", base_curr, ticker, matches);
+                matches
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    if matches.is_empty() {
+        log::info!("No matches found for ticker: {}", ticker);
+        return format!(
+            "🔍 No token found with ticker '{}' on BitcoinTry. Please verify the symbol.",
+            ticker
+        );
+    }
+
+    // If multiple matches, select by highest volume
+    let best_match = if matches.len() > 1 {
+        log::info!("Found {} matches for ticker {}, selecting best by volume", matches.len(), ticker);
+        
+        // Sort by quote_volume (descending) - the trading volume in USDT
+        matches.sort_by(|a, b| {
+            let a_vol = a
+                .get("quote_volume")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let b_vol = b
+                .get("quote_volume")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            b_vol.partial_cmp(&a_vol).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
+        matches[0]
+    } else {
+        matches[0]
+    };
+
+    // Extract fields from actual API structure
+    let base_currency = best_match
+        .get("base_currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or(ticker);
+    let quote_currency = best_match
+        .get("quote_currency")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USDT");
+    
+    // Get trading_pairs or construct it
+    let trading_pair_from_api = best_match
+        .get("trading_pairs")
+        .and_then(|v| v.as_str());
+    let trading_pair_default = format!("{}_{}", base_currency, quote_currency);
+    let trading_pair = trading_pair_from_api.unwrap_or(&trading_pair_default);
+    
+    let last_price = best_match
+        .get("last_price")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let change_24h = best_match
+        .get("price_change_percent_24h")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let base_volume = best_match
+        .get("base_volume")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let quote_volume = best_match
+        .get("quote_volume")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let highest_bid = best_match
+        .get("highest_bid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let lowest_ask = best_match
+        .get("lowest_ask")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let highest_24h = best_match
+        .get("highest_price_24h")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    let lowest_24h = best_match
+        .get("lowest_price_24h")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+
+    // Format price change with emoji
+    let change_formatted = if let Ok(change) = change_24h.parse::<f64>() {
+        if change >= 0.0 {
+            format!("📈 +{:.2}%", change)
+        } else {
+            format!("📉 {:.2}%", change)
+        }
+    } else {
+        "➡️ 0.00%".to_string()
+    };
+
+    // Format numbers
+    let price_formatted = format_price(last_price);
+    let base_volume_formatted = format_large_number(base_volume);
+    let quote_volume_formatted = format_large_number(quote_volume);
+    let highest_bid_formatted = format_price(highest_bid);
+    let lowest_ask_formatted = format_price(lowest_ask);
+    let highest_24h_formatted = format_price(highest_24h);
+    let lowest_24h_formatted = format_price(lowest_24h);
+
+    // Build result
+    format!(
+        "💰 **{} / {}** on BitcoinTry\n\n\
+        💵 **Price:** ${}\n\
+        📊 **24h Change:** {}\n\
+        📈 **24h High:** ${}\n\
+        📉 **24h Low:** ${}\n\
+        💹 **Highest Bid:** ${}\n\
+        💹 **Lowest Ask:** ${}\n\
+        📊 **24h Volume:** {} {} (${} {})\n\n\
+        🔗 Trading Pair: {}",
+        base_currency,
+        quote_currency,
+        price_formatted,
+        change_formatted,
+        highest_24h_formatted,
+        lowest_24h_formatted,
+        highest_bid_formatted,
+        lowest_ask_formatted,
+        base_volume_formatted,
+        base_currency,
+        quote_volume_formatted,
+        quote_currency,
+        trading_pair
+    )
+}
+
 pub async fn execute_pay_users(
     arguments: &serde_json::Value,
     bot: Bot,
