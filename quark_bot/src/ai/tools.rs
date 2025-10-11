@@ -1,7 +1,7 @@
 use super::actions::{
     execute_fear_and_greed_index, execute_get_recent_messages, execute_get_time,
-    execute_get_wallet_address, execute_new_pools, execute_pay_users, execute_search_pools,
-    execute_token_price, execute_trending_pools,
+    execute_get_wallet_address, execute_new_pools, execute_pay_users, execute_price_by_bitcointry,
+    execute_search_pools, execute_trending_pools,
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
@@ -363,7 +363,7 @@ pub async fn execute_custom_tool(
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_token_price" => execute_token_price(arguments).await,
+        "get_token_price" => execute_price_by_bitcointry(arguments).await,
         "get_pay_users" => execute_pay_users(arguments, bot, msg, bot_deps.clone(), group_id).await,
         "create_proposal" => {
             execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await

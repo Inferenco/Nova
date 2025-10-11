@@ -1,6 +1,6 @@
 use crate::ai::actions::{
     execute_fear_and_greed_index, execute_get_recent_messages_for_chat, execute_get_time,
-    execute_new_pools, execute_search_pools, execute_token_price, execute_trending_pools,
+    execute_new_pools, execute_price_by_bitcointry, execute_search_pools, execute_trending_pools,
 };
 use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
@@ -35,9 +35,9 @@ impl AI {
     pub fn new(openai_api_key: String, cloud: GcsImageUploader) -> Self {
         let system_prompt = get_prompt();
 
-        // Use default recovery policy for API error handling
-        // This provides automatic retry with 1 attempt for seamless experience
-        let recovery_policy = RecoveryPolicy::default();
+        // Use default recovery policy but increase retry budget so brief API hiccups
+        // (e.g., 5xx/429) don't bubble up to scheduled runs immediately.
+        let recovery_policy = RecoveryPolicy::default().with_max_retries(3);
         let openai_client = OAIClient::new_with_recovery(&openai_api_key, recovery_policy)
             .expect("Failed to create OpenAI client with recovery policy");
 
@@ -959,7 +959,7 @@ impl AI {
                         "get_trending_pools" => execute_trending_pools(&args_value).await,
                         "search_pools" => execute_search_pools(&args_value).await,
                         "get_new_pools" => execute_new_pools(&args_value).await,
-                        "get_token_price" => execute_token_price(&args_value).await,
+                        "get_token_price" => execute_price_by_bitcointry(&args_value).await,
                         "get_recent_messages" => {
                             let chat_id_i64: i64 = group_id.parse().unwrap_or(0);
                             let chat_id = teloxide::types::ChatId(chat_id_i64 as i64);

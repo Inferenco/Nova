@@ -1164,7 +1164,7 @@ fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
 }
 
 /// Execute token price fetch from BitcoinTry
-pub async fn execute_token_price(arguments: &serde_json::Value) -> String {
+pub async fn execute_price_by_bitcointry(arguments: &serde_json::Value) -> String {
     log::info!("Executing get token price tool");
     log::info!("Arguments: {:?}", arguments);
 
@@ -1194,7 +1194,7 @@ pub async fn execute_token_price(arguments: &serde_json::Value) -> String {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => {
-                        let result = format_token_price_response(&data, &ticker);
+                        let result = format_price_response_by_bitcointry(&data, &ticker);
                         if result.trim().is_empty() {
                             format!(
                                 "🔍 No token found with ticker '{}'. Please verify the symbol and try again.",
@@ -1240,7 +1240,7 @@ pub async fn execute_token_price(arguments: &serde_json::Value) -> String {
 }
 
 /// Format the token price response from BitcoinTry API
-fn format_token_price_response(data: &serde_json::Value, ticker: &str) -> String {
+fn format_price_response_by_bitcointry(data: &serde_json::Value, ticker: &str) -> String {
     // Parse the array response
     let entries = match data.as_array() {
         Some(arr) => arr,
