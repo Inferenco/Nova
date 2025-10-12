@@ -7,10 +7,15 @@ use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::env;
 use teloxide::{
+    payloads::SendMessage,
+    requests::JsonRequest,
     Bot, RequestError,
     prelude::*,
     sugar::request::RequestReplyExt,
-    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, ThreadId, UserId},
+    types::{
+        ChatId, InlineKeyboardMarkup, KeyboardMarkup, LinkPreviewOptions, MessageId, ParseMode,
+        ThreadId, UserId,
+    },
 };
 
 use crate::dependencies::BotDependencies;
@@ -18,6 +23,26 @@ use crate::dependencies::BotDependencies;
 pub enum KeyboardMarkupType {
     InlineKeyboardType(InlineKeyboardMarkup),
     KeyboardType(KeyboardMarkup),
+}
+
+pub trait DisableWebPagePreviewExt {
+    fn disable_web_page_preview(self, disable: bool) -> Self;
+}
+
+impl DisableWebPagePreviewExt for JsonRequest<SendMessage> {
+    fn disable_web_page_preview(self, disable: bool) -> Self {
+        if disable {
+            self.link_preview_options(LinkPreviewOptions {
+                is_disabled: true,
+                url: None,
+                prefer_small_media: false,
+                prefer_large_media: false,
+                show_above_text: false,
+            })
+        } else {
+            self
+        }
+    }
 }
 
 /// Helper function to format Unix timestamp into readable date and time

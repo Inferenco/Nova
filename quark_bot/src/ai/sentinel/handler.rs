@@ -10,7 +10,9 @@ use crate::{
     ai::moderation::dto::ModerationOverrides,
     dependencies::BotDependencies,
     payment::dto::PaymentPrefs,
-    utils::{create_purchase_request, send_scheduled_message},
+    utils::{
+        create_purchase_request, send_scheduled_message, DisableWebPagePreviewExt,
+    },
 };
 
 pub async fn handle_message_sentinel(
@@ -305,6 +307,7 @@ pub async fn handle_message_sentinel(
                         );
                         let request = bot
                             .send_message(msg.chat.id, text)
+                            .disable_web_page_preview(true)
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard);
 
