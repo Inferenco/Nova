@@ -1060,31 +1060,22 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if username.is_none() {
-            log::error!("Username not found");
-            return Ok(());
+            log::debug!("Username not found for user in group {}", msg.chat.id);
+            // Continue processing - username not required for all features
         }
 
-        if group_credentials.is_none() {
-            log::error!("Group credentials not found");
-
-            send_message(
-                msg,
-                bot,
-                "❌ Group not found, please login again".to_string(),
-            )
-            .await?;
-            return Ok(());
-        }
-
-        let group_credentials = group_credentials.unwrap();
-
-        let username = username.unwrap();
-
-        if !group_credentials.users.contains(&username) {
-            bot_deps
-                .group
-                .add_user_to_group(msg.chat.id, username)
-                .await?;
+        // Only add user to group if credentials exist and username is present
+        // Don't block or spam error messages if group hasn't logged in yet
+        if let (Some(credentials), Some(username)) = (&group_credentials, &username) {
+            if !credentials.users.contains(username) {
+                if let Err(e) = bot_deps
+                    .group
+                    .add_user_to_group(msg.chat.id, username.clone())
+                    .await
+                {
+                    log::warn!("Failed to add user {} to group {}: {}", username, msg.chat.id, e);
+                }
+            }
         }
 
         // Try to find the pending token input with the formatted group ID
