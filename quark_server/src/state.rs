@@ -1,5 +1,6 @@
 use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use aptos_rust_sdk_types::api_types::{address::AccountAddress, chain_id::ChainId};
+use inf_circle_sdk::circle_ops::circler_ops::CircleOps;
 use redis::aio::MultiplexedConnection;
 
 #[derive(Clone)]
@@ -8,6 +9,8 @@ pub struct ServerState {
     chain_id: ChainId,
     contract_address: AccountAddress,
     redis_client: MultiplexedConnection,
+    circle_ops: CircleOps,
+    circle_wallet_set_id: String,
 }
 
 impl
@@ -16,6 +19,8 @@ impl
         ChainId,
         AccountAddress,
         MultiplexedConnection,
+        CircleOps,
+        String,
     )> for ServerState
 {
     fn from(
@@ -24,14 +29,19 @@ impl
             ChainId,
             AccountAddress,
             MultiplexedConnection,
+            CircleOps,
+            String,
         ),
     ) -> Self {
-        let (node, chain_id, contract_address, redis_client) = states;
+        let (node, chain_id, contract_address, redis_client, circle_ops, circle_wallet_set_id) =
+            states;
         Self {
             node,
             chain_id,
             contract_address,
             redis_client,
+            circle_ops,
+            circle_wallet_set_id,
         }
     }
 }
@@ -51,5 +61,13 @@ impl ServerState {
 
     pub fn redis_client(&self) -> &MultiplexedConnection {
         &self.redis_client
+    }
+
+    pub fn circle_ops(&self) -> &CircleOps {
+        &self.circle_ops
+    }
+
+    pub fn circle_wallet_set_id(&self) -> &String {
+        &self.circle_wallet_set_id
     }
 }

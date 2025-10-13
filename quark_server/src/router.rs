@@ -23,6 +23,7 @@ use crate::{
     state::ServerState,
 };
 
+use inf_circle_sdk::circle_ops::circler_ops::CircleOps;
 use redis::Client;
 
 async fn connect_to_redis_with_retry(redis_url: &str) -> redis::aio::MultiplexedConnection {
@@ -74,6 +75,11 @@ pub async fn router() -> Router {
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
     let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
+    let circle_wallet_set_id = env::var("CIRCLE_WALLET_SET_ID")
+        .expect("CIRCLE_WALLET_SET_ID environment variable not set");
+    let circle_ops = CircleOps::new()
+        .map_err(|e| log::error!("Failed to create CircleOps: {}", e))
+        .unwrap();
 
     println!("Attempting to connect to Redis");
     let redis_connection = connect_to_redis_with_retry(&redis_url).await;
@@ -111,6 +117,8 @@ pub async fn router() -> Router {
         chain_id,
         contract_address,
         redis_connection,
+        circle_ops,
+        circle_wallet_set_id,
     )));
 
     let doc = ApiDoc::openapi();

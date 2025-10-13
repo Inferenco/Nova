@@ -24,3 +24,5 @@ redis = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+inf-circle-sdk = { workspace = true }
+log = { workspace = true }

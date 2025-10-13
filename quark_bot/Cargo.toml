@@ -35,3 +35,4 @@ futures = { workspace = true }
 rand = {workspace = true}
 ron = { workspace = true }
 ammonia = "3.3"
+inf-circle-sdk = { workspace = true }

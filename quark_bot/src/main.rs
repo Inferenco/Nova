@@ -57,6 +57,7 @@ use crate::{
     user_model_preferences::handler::UserModelPreferences,
     yield_ai::yield_ai::YieldAI,
 };
+use inf_circle_sdk::circle_view::circle_view::CircleView;
 use quark_core::helpers::{bot_commands::QuarkState, dto::CoinVersion};
 use std::env;
 use std::sync::Arc;
@@ -89,6 +90,9 @@ async fn main() {
         .expect("Failed to create GCS image uploader");
 
     let aptos = Aptos::new(aptos_network, contract_address, aptos_api_key);
+    let circle_view = CircleView::new()
+        .map_err(|e| log::error!("Failed to create CircleView: {}", e))
+        .unwrap();
 
     let min_deposit = env::var("MIN_DEPOSIT")
         .expect("MIN_DEPOSIT not set")
@@ -268,6 +272,7 @@ async fn main() {
         summarization_settings,
         welcome_service,
         summarizer,
+        circle_view,
     };
 
     // Bootstrap user-defined schedules (load and register)

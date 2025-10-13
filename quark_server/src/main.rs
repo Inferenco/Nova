@@ -1,4 +1,5 @@
 mod admin;
+mod circle;
 mod create_group;
 mod dao;
 mod docs;

@@ -28,6 +28,7 @@ use crate::{
     welcome::welcome_service::WelcomeService,
     yield_ai::yield_ai::YieldAI,
 };
+use inf_circle_sdk::circle_view::circle_view::CircleView;
 use tokio_cron_scheduler::JobScheduler;
 
 #[derive(Clone)]
@@ -64,4 +65,5 @@ pub struct BotDependencies {
     pub summarization_settings: SummarizationSettings,
     pub welcome_service: WelcomeService,
     pub summarizer: SummarizerService,
+    pub circle_view: CircleView,
 }
