@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
+use aptos_rust_sdk_types::api_types::chain_id::ChainId;
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use inf_circle_sdk::{
     dev_wallet::{
         dto::{AccountType, DevWalletsResponse},
         ops::create_dev_wallet::CreateDevWalletRequestBuilder,
     },
-    helper::CircleResponse,
     types::Blockchain,
 };
-use quark_core::helpers::dto::{GroupPayload, UserPayload};
+use quark_core::helpers::dto::GroupPayload;
 
 use crate::{error::ErrorServer, state::ServerState};
 
@@ -18,14 +18,14 @@ use crate::{error::ErrorServer, state::ServerState};
     path = "/create-group-wallet",
     description = "Create group wallet",
     responses(
-        (status = 200, body = CircleResponse<DevWalletsResponse>, description = "Successful Response"),
+        (status = 200, description = "Successful Response"),
         (status = 400, description = "Bad Request"),
     )
 )]
 pub async fn create_group_wallet(
     State(server_state): State<Arc<ServerState>>,
     Extension(group): Extension<GroupPayload>,
-) -> Result<Json<CircleResponse<DevWalletsResponse>>, ErrorServer> {
+) -> Result<Json<DevWalletsResponse>, ErrorServer> {
     let circle_ops = server_state.circle_ops();
     let chain_id = server_state.chain_id();
 
@@ -60,5 +60,5 @@ pub async fn create_group_wallet(
             message: e.to_string(),
         })?;
 
-    Ok(Json(CircleResponse::new(wallet)))
+    Ok(Json(wallet))
 }

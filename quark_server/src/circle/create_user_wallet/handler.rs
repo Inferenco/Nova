@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::circle::dto::CircleResponse;
 use aptos_rust_sdk_types::api_types::chain_id::ChainId;
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use inf_circle_sdk::{
@@ -20,14 +19,14 @@ use crate::{error::ErrorServer, state::ServerState};
     path = "/create-user-wallet",
     description = "Create user wallet",
     responses(
-        (status = 200, body = CircleResponse, description = "Successful Response"),
+        (status = 200, description = "Successful Response"),
         (status = 400, description = "Bad Request"),
     )
 )]
 pub async fn create_wallet(
     State(server_state): State<Arc<ServerState>>,
     Extension(user): Extension<UserPayload>,
-) -> Result<Json<CircleResponse<DevWalletsResponse>>, ErrorServer> {
+) -> Result<Json<DevWalletsResponse>, ErrorServer> {
     let circle_ops = server_state.circle_ops();
     let chain_id = server_state.chain_id();
 
@@ -67,5 +66,5 @@ pub async fn create_wallet(
             message: e.to_string(),
         })?;
 
-    Ok(Json(CircleResponse::new(wallet)))
+    Ok(Json(wallet))
 }
