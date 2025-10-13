@@ -1,8 +1,9 @@
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ChatId, MessageId};
-use teloxide::{Bot, RequestError, prelude::Requester};
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ChatId};
+use teloxide::{Bot, RequestError};
 
 use crate::scheduled_payments::dto::{PendingPaymentStep, PendingPaymentWizardState};
 use crate::scheduled_prompts::dto::RepeatPolicy;
+use crate::utils::WizardCleanupTargets;
 
 pub fn build_repeat_keyboard_payments() -> InlineKeyboardMarkup {
     let rows = vec![
@@ -205,34 +206,12 @@ pub fn reset_from_step_payments(state: &mut PendingPaymentWizardState, step: Pen
     }
 }
 
-/// Helper to safely delete messages
-pub async fn delete_message_safe(bot: &Bot, chat_id: ChatId, message_id: i32) {
-    if let Err(e) = bot.delete_message(chat_id, MessageId(message_id)).await {
-        log::debug!("Could not delete message {}: {}", message_id, e);
-    }
-}
-
-/// Helper to transition to next step by cleaning up old messages
-pub async fn cleanup_and_transition(
-    bot: &Bot,
+pub fn extract_payment_cleanup_targets(
     state: &mut PendingPaymentWizardState,
-    chat_id: ChatId,
-    user_msg_id: Option<i32>,
-) {
-    // Delete user message if provided
-    if let Some(uid) = user_msg_id {
-        delete_message_safe(bot, chat_id, uid).await;
-    }
-    
-    // Delete all tracked user messages
-    for uid in &state.user_message_ids {
-        delete_message_safe(bot, chat_id, *uid).await;
-    }
-    state.user_message_ids.clear();
-    
-    // Delete current bot message
-    if let Some(bot_msg_id) = state.current_bot_message_id {
-        delete_message_safe(bot, chat_id, bot_msg_id).await;
+) -> WizardCleanupTargets {
+    WizardCleanupTargets {
+        user_message_ids: std::mem::take(&mut state.user_message_ids),
+        bot_message_id: state.current_bot_message_id.take(),
     }
 }
 

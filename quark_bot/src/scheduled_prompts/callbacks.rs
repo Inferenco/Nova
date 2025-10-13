@@ -14,9 +14,10 @@ use crate::{
         build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt,
         build_minutes_keyboard_with_nav_prompt, build_nav_keyboard_prompt,
         build_repeat_keyboard_with_nav_prompt, reset_from_step_prompts, summarize,
-        send_step_message, delete_message_safe,
+        send_step_message,
     },
 };
+use crate::utils::delete_message_safe;
 
 pub async fn handle_scheduled_prompts_callback(
     bot: Bot,

@@ -13,9 +13,9 @@ use crate::scheduled_payments::helpers::{
     reset_from_step_payments,
     summarize,
     send_step_message,
-    delete_message_safe,
 };
 use crate::scheduled_prompts::dto::RepeatPolicy;
+use crate::utils::delete_message_safe;
 
 pub async fn handle_scheduled_payments_callback(
     bot: Bot,

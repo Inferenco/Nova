@@ -1,5 +1,7 @@
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ChatId, MessageId};
-use teloxide::{Bot, RequestError, prelude::Requester};
+use teloxide::{Bot, RequestError};
+
+use crate::utils::WizardCleanupTargets;
 use crate::scheduled_prompts::dto::{PendingStep, PendingWizardState, RepeatPolicy};
 
 // Removed non-nav keyboard builders to avoid dead_code warnings. Using nav variants below.
@@ -165,34 +167,10 @@ pub fn reset_from_step_prompts(state: &mut PendingWizardState, step: PendingStep
     }
 }
 
-/// Helper to safely delete messages
-pub async fn delete_message_safe(bot: &Bot, chat_id: ChatId, message_id: i32) {
-    if let Err(e) = bot.delete_message(chat_id, MessageId(message_id)).await {
-        log::debug!("Could not delete message {}: {}", message_id, e);
-    }
-}
-
-/// Helper to transition to next step by cleaning up old messages
-pub async fn cleanup_and_transition(
-    bot: &Bot,
-    state: &mut PendingWizardState,
-    chat_id: ChatId,
-    user_msg_id: Option<i32>,
-) {
-    // Delete user message if provided
-    if let Some(uid) = user_msg_id {
-        delete_message_safe(bot, chat_id, uid).await;
-    }
-    
-    // Delete all tracked user messages
-    for uid in &state.user_message_ids {
-        delete_message_safe(bot, chat_id, *uid).await;
-    }
-    state.user_message_ids.clear();
-    
-    // Delete current bot message
-    if let Some(bot_msg_id) = state.current_bot_message_id {
-        delete_message_safe(bot, chat_id, bot_msg_id).await;
+pub fn extract_prompt_cleanup_targets(state: &mut PendingWizardState) -> WizardCleanupTargets {
+    WizardCleanupTargets {
+        user_message_ids: std::mem::take(&mut state.user_message_ids),
+        bot_message_id: state.current_bot_message_id.take(),
     }
 }
 
