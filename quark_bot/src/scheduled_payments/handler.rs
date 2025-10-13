@@ -5,8 +5,18 @@ use crate::dependencies::BotDependencies;
 use crate::scheduled_payments::dto::{
     PendingPaymentStep, PendingPaymentWizardState, ScheduledPaymentRecord,
 };
-use crate::utils::{KeyboardMarkupType, send_markdown_message_with_keyboard, send_message};
-use crate::scheduled_payments::helpers::{build_nav_keyboard_payments, build_hours_keyboard_with_nav_payments, send_step_message, cleanup_and_transition};
+use crate::scheduled_payments::helpers::{
+    build_hours_keyboard_with_nav_payments,
+    build_nav_keyboard_payments,
+    extract_payment_cleanup_targets,
+    send_step_message,
+};
+use crate::utils::{
+    cleanup_and_transition,
+    send_markdown_message_with_keyboard,
+    send_message,
+    KeyboardMarkupType,
+};
 use chrono::Utc;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, User};
 use uuid::Uuid;
@@ -284,7 +294,14 @@ pub async fn handle_message_scheduled_payments(
                 let uname = text_raw.trim_start_matches('@').to_string();
                 if let Some(creds) = bot_deps.auth.get_credentials(&uname) {
                     // Clean up old messages
-                    cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                    cleanup_and_transition(
+                        &bot,
+                        msg.chat.id,
+                        Some(msg.id.0),
+                        &mut st,
+                        extract_payment_cleanup_targets,
+                    )
+                    .await;
                     
                     st.recipient_username = Some(uname);
                     st.recipient_address = Some(creds.resource_account_address);
@@ -353,7 +370,14 @@ pub async fn handle_message_scheduled_payments(
                     }
                 };
                 // Clean up old messages
-                cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                cleanup_and_transition(
+                    &bot,
+                    msg.chat.id,
+                    Some(msg.id.0),
+                    &mut st,
+                    extract_payment_cleanup_targets,
+                )
+                .await;
                 
                 st.symbol = Some(symbol);
                 st.token_type = Some(token_type);
@@ -384,7 +408,14 @@ pub async fn handle_message_scheduled_payments(
                 match parsed.parse::<f64>() {
                     Ok(v) if v > 0.0 => {
                         // Clean up old messages
-                        cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                        cleanup_and_transition(
+                            &bot,
+                            msg.chat.id,
+                            Some(msg.id.0),
+                            &mut st,
+                            extract_payment_cleanup_targets,
+                        )
+                        .await;
                         
                         st.amount_display = Some(v);
                         st.step = PendingPaymentStep::AwaitingDate;
@@ -421,7 +452,14 @@ pub async fn handle_message_scheduled_payments(
             PendingPaymentStep::AwaitingDate => {
                 if chrono::NaiveDate::parse_from_str(&text_raw, "%Y-%m-%d").is_ok() {
                     // Clean up old messages
-                    cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                    cleanup_and_transition(
+                        &bot,
+                        msg.chat.id,
+                        Some(msg.id.0),
+                        &mut st,
+                        extract_payment_cleanup_targets,
+                    )
+                    .await;
                     
                     st.date = Some(text_raw);
                     st.step = PendingPaymentStep::AwaitingHour;

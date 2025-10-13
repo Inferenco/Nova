@@ -13,12 +13,22 @@ use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::{
         dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-        helpers::{build_hours_keyboard_with_nav_prompt, build_image_keyboard_with_nav_prompt, build_nav_keyboard_prompt, summarize, send_step_message, cleanup_and_transition},
+        helpers::{
+            build_hours_keyboard_with_nav_prompt,
+            build_image_keyboard_with_nav_prompt,
+            build_nav_keyboard_prompt,
+            extract_prompt_cleanup_targets,
+            summarize,
+            send_step_message,
+        },
         runner::register_schedule,
     },
     utils::{
-        KeyboardMarkupType, create_purchase_request,
-        send_markdown_message_with_keyboard, send_message,
+        cleanup_and_transition,
+        create_purchase_request,
+        send_markdown_message_with_keyboard,
+        send_message,
+        KeyboardMarkupType,
     },
 };
 
@@ -340,7 +350,14 @@ pub async fn handle_message_scheduled_prompts(
                 }
 
                 // Clean up old messages
-                cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                cleanup_and_transition(
+                    &bot,
+                    msg.chat.id,
+                    Some(msg.id.0),
+                    &mut st,
+                    extract_prompt_cleanup_targets,
+                )
+                .await;
                 
                 st.prompt = Some(text);
                 st.step = PendingStep::AwaitingImage;
@@ -400,7 +417,14 @@ pub async fn handle_message_scheduled_prompts(
                     match bot_deps.ai.upload_user_images(vec![(temp_path, extension)]).await {
                         Ok(urls) if !urls.is_empty() => {
                             // Clean up old messages
-                            cleanup_and_transition(&bot, &mut st, msg.chat.id, Some(msg.id.0)).await;
+                            cleanup_and_transition(
+                                &bot,
+                                msg.chat.id,
+                                Some(msg.id.0),
+                                &mut st,
+                                extract_prompt_cleanup_targets,
+                            )
+                            .await;
                             
                             st.image_url = Some(urls[0].clone());
                             st.step = PendingStep::AwaitingHour;

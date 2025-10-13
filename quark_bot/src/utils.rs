@@ -25,6 +25,12 @@ pub enum KeyboardMarkupType {
     KeyboardType(KeyboardMarkup),
 }
 
+#[derive(Default)]
+pub struct WizardCleanupTargets {
+    pub user_message_ids: Vec<i32>,
+    pub bot_message_id: Option<i32>,
+}
+
 pub trait DisableWebPagePreviewExt {
     fn disable_web_page_preview(self, disable: bool) -> Self;
 }
@@ -42,6 +48,43 @@ impl DisableWebPagePreviewExt for JsonRequest<SendMessage> {
         } else {
             self
         }
+    }
+}
+
+/// Helper to safely delete messages without failing the flow if Telegram rejects the request.
+pub async fn delete_message_safe(bot: &Bot, chat_id: ChatId, message_id: i32) {
+    if let Err(e) = bot.delete_message(chat_id, MessageId(message_id)).await {
+        log::debug!("Could not delete message {}: {}", message_id, e);
+    }
+}
+
+/// Generic helper to clean up wizard state before transitioning to a new step.
+///
+/// * `user_message_id` – optional ID of the most recent user message to delete immediately.
+/// * `extract_targets` – closure responsible for extracting and clearing state-specific
+///   collections that track messages which should be removed.
+pub async fn cleanup_and_transition<State, Extract>(
+    bot: &Bot,
+    chat_id: ChatId,
+    user_message_id: Option<i32>,
+    state: &mut State,
+    extract_targets: Extract,
+)
+where
+    Extract: FnOnce(&mut State) -> WizardCleanupTargets,
+{
+    if let Some(uid) = user_message_id {
+        delete_message_safe(bot, chat_id, uid).await;
+    }
+
+    let targets = extract_targets(state);
+
+    for uid in targets.user_message_ids {
+        delete_message_safe(bot, chat_id, uid).await;
+    }
+
+    if let Some(bot_msg_id) = targets.bot_message_id {
+        delete_message_safe(bot, chat_id, bot_msg_id).await;
     }
 }
 
