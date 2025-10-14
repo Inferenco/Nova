@@ -5,10 +5,55 @@ use quark_core::helpers::dto::CoinVersion;
 use teloxide::Bot;
 use teloxide::prelude::Requester;
 use teloxide::types::{ChatId, Message};
+use tokio::time::{sleep, Duration};
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
 use crate::pending_transactions::dto::PendingTransaction;
+
+const GECKO_MAX_RETRIES: usize = 3;
+const GECKO_RETRY_BASE_DELAY_MS: u64 = 300;
+
+async fn send_gecko_request(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut attempt = 0;
+    loop {
+        let attempt_number = attempt + 1;
+        match client
+            .get(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "QuarkBot/1.0")
+            .send()
+            .await
+        {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                if attempt_number >= GECKO_MAX_RETRIES {
+                    log::error!(
+                        "GeckoTerminal request failed after {} attempts: {} (url: {})",
+                        attempt_number,
+                        error,
+                        url
+                    );
+                    return Err(error);
+                }
+
+                let delay = Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                log::warn!(
+                    "GeckoTerminal request attempt {} failed: {}. Retrying in {}ms...",
+                    attempt_number,
+                    error,
+                    delay.as_millis()
+                );
+                sleep(delay).await;
+            }
+        }
+
+        attempt += 1;
+    }
+}
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
@@ -46,13 +91,7 @@ pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
+    let result = match send_gecko_request(&client, &url).await {
         Ok(response) => {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
@@ -102,10 +141,13 @@ pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
         }
         Err(e) => {
             log::error!(
-                "Network error when calling trending pools GeckoTerminal API: {}",
+                "Network error when calling trending pools GeckoTerminal API after retries: {}",
                 e
             );
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
+            format!(
+                "❌ Network error when calling GeckoTerminal API after retries: {}",
+                e
+            )
         }
     };
 
@@ -483,13 +525,7 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
+    let result = match send_gecko_request(&client, &url).await {
         Ok(response) => {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
@@ -534,10 +570,13 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
         }
         Err(e) => {
             log::error!(
-                "Network error when calling search pools GeckoTerminal API: {}",
+                "Network error when calling search pools GeckoTerminal API after retries: {}",
                 e
             );
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
+            format!(
+                "❌ Network error when calling GeckoTerminal API after retries: {}",
+                e
+            )
         }
     };
     if result.trim().is_empty() {
@@ -733,13 +772,7 @@ pub async fn execute_new_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
+    let result = match send_gecko_request(&client, &url).await {
         Ok(response) => {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
@@ -778,7 +811,10 @@ pub async fn execute_new_pools(arguments: &serde_json::Value) -> String {
             }
         }
         Err(e) => {
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
+            format!(
+                "❌ Network error when calling GeckoTerminal API after retries: {}",
+                e
+            )
         }
     };
 
