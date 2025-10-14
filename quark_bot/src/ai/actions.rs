@@ -1,6 +1,8 @@
 use std::env;
+use std::fmt;
 
 use chrono::Utc;
+use reqwest::StatusCode;
 use quark_core::helpers::dto::CoinVersion;
 use teloxide::Bot;
 use teloxide::prelude::Requester;
@@ -14,10 +16,54 @@ use crate::pending_transactions::dto::PendingTransaction;
 const GECKO_MAX_RETRIES: usize = 3;
 const GECKO_RETRY_BASE_DELAY_MS: u64 = 300;
 
+/// Captures the different classes of failures that can occur when calling the GeckoTerminal API.
+#[derive(Debug)]
+enum GeckoRequestError {
+    Network(reqwest::Error),
+    ResponseRead(reqwest::Error),
+    Http { status: StatusCode, body: String },
+    Parse(serde_json::Error),
+    Api(Vec<String>),
+}
+
+impl fmt::Display for GeckoRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Network(err) => write!(f, "network error: {}", err),
+            Self::ResponseRead(err) => write!(f, "failed to read response body: {}", err),
+            Self::Http { status, body } => write!(f, "HTTP {}: {}", status, body),
+            Self::Parse(err) => write!(f, "failed to parse JSON payload: {}", err),
+            Self::Api(messages) => {
+                if messages.is_empty() {
+                    write!(f, "GeckoTerminal returned an error response")
+                } else if messages.len() == 1 {
+                    write!(f, "{}", messages[0])
+                } else {
+                    write!(f, "{}", messages.join(" | "))
+                }
+            }
+        }
+    }
+}
+
+/// Expected structure of the `data` field inside a GeckoTerminal JSON payload.
+enum GeckoPayloadShape {
+    Collection,
+    Object,
+}
+
+/// High-level classification describing whether the GeckoTerminal payload contained usable data.
+enum GeckoPayloadState {
+    Populated,
+    Empty,
+    Missing,
+}
+
+/// Execute a GeckoTerminal request with retry/backoff logic and return the parsed JSON body.
 async fn send_gecko_request(
     client: &reqwest::Client,
     url: &str,
-) -> Result<reqwest::Response, reqwest::Error> {
+) -> Result<serde_json::Value, GeckoRequestError> {
     let mut attempt = 0;
     loop {
         let attempt_number = attempt + 1;
@@ -28,7 +74,119 @@ async fn send_gecko_request(
             .send()
             .await
         {
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                let status = response.status();
+                let body = match response.text().await {
+                    Ok(body) => body,
+                    Err(error) => {
+                        if attempt_number >= GECKO_MAX_RETRIES {
+                            log::error!(
+                                "Failed to read GeckoTerminal response after {} attempts: {} (url: {})",
+                                attempt_number,
+                                error,
+                                url
+                            );
+                            return Err(GeckoRequestError::ResponseRead(error));
+                        }
+
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "Reading GeckoTerminal response failed on attempt {}: {}. Retrying in {}ms...",
+                            attempt_number,
+                            error,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+                };
+
+                if !status.is_success() {
+                    let should_retry =
+                        status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS;
+                    if should_retry && attempt_number < GECKO_MAX_RETRIES {
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "GeckoTerminal request returned status {} on attempt {}. Retrying in {}ms...",
+                            status,
+                            attempt_number,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+
+                    log::error!(
+                        "GeckoTerminal request failed with status {} after {} attempts (url: {}): {}",
+                        status,
+                        attempt_number,
+                        url,
+                        body
+                    );
+                    return Err(GeckoRequestError::Http { status, body });
+                }
+
+                match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(json) => {
+                        if let Some(errors) = json.get("errors").and_then(|v| v.as_array()) {
+                            if !errors.is_empty() {
+                                let messages: Vec<String> = errors
+                                    .iter()
+                                    .map(|error| {
+                                        error
+                                            .get("detail")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                            .or_else(|| {
+                                                error
+                                                    .get("title")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|s| s.to_string())
+                                            })
+                                            .unwrap_or_else(|| error.to_string())
+                                    })
+                                    .collect();
+                                log::error!(
+                                    "GeckoTerminal API returned error payload on attempt {} (url: {}): {:?}",
+                                    attempt_number,
+                                    url,
+                                    messages
+                                );
+                                return Err(GeckoRequestError::Api(messages));
+                            }
+                        }
+
+                        return Ok(json);
+                    }
+                    Err(error) => {
+                        if attempt_number >= GECKO_MAX_RETRIES {
+                            log::error!(
+                                "Failed to parse GeckoTerminal JSON after {} attempts: {} (url: {})",
+                                attempt_number,
+                                error,
+                                url
+                            );
+                            return Err(GeckoRequestError::Parse(error));
+                        }
+
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "Parsing GeckoTerminal payload failed on attempt {}: {}. Retrying in {}ms...",
+                            attempt_number,
+                            error,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+            }
             Err(error) => {
                 if attempt_number >= GECKO_MAX_RETRIES {
                     log::error!(
@@ -37,7 +195,7 @@ async fn send_gecko_request(
                         error,
                         url
                     );
-                    return Err(error);
+                    return Err(GeckoRequestError::Network(error));
                 }
 
                 let delay = Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
@@ -55,10 +213,33 @@ async fn send_gecko_request(
     }
 }
 
-enum GeckoContentStatus {
-    HasContent(String),
-    NoPools,
-    MissingData,
+/// Determine whether the provided GeckoTerminal JSON payload contains usable data for the requested shape.
+fn classify_gecko_payload(data: &serde_json::Value, shape: GeckoPayloadShape) -> GeckoPayloadState {
+    let Some(payload) = data.get("data") else {
+        return GeckoPayloadState::Missing;
+    };
+
+    match payload {
+        serde_json::Value::Null => GeckoPayloadState::Missing,
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                GeckoPayloadState::Empty
+            } else {
+                GeckoPayloadState::Populated
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                match shape {
+                    GeckoPayloadShape::Collection => GeckoPayloadState::Empty,
+                    GeckoPayloadShape::Object => GeckoPayloadState::Missing,
+                }
+            } else {
+                GeckoPayloadState::Populated
+            }
+        }
+        _ => GeckoPayloadState::Populated,
+    }
 }
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -98,72 +279,81 @@ pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
     // Make HTTP request
     let client = reqwest::Client::new();
     let result = match send_gecko_request(&client, &url).await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => match format_trending_pools_response(
-                        &data,
-                        network,
-                        limit,
-                        duration,
-                    ) {
-                        GeckoContentStatus::HasContent(result) => result,
-                        GeckoContentStatus::NoPools => format!(
-                            "📊 No trending pools found for {} network. The API returned an empty pool list.",
-                            network
-                        ),
-                        GeckoContentStatus::MissingData => {
-                            log::warn!(
-                                "Trending pools API response missing expected data array for network {}",
-                                network
-                            );
-                            format!(
-                                "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
-                                network
-                            )
-                        }
-                    },
-                    Err(e) => {
-                        log::error!("Failed to parse trending pools API response: {}", e);
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_trending_pools_response(
+                &data,
+                network,
+                limit,
+                duration,
+            ) {
+                Some(rendered) => rendered,
+                None => {
+                    log::warn!(
+                        "Trending pools payload missing detailed pool data for network {} despite populated classification",
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
+            },
+            GeckoPayloadState::Empty => format!(
+                "📊 No trending pools found for {} network. The API returned an empty pool list.",
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "Trending pools API response missing expected data array for network {}",
+                    network
+                );
+                format!(
+                    "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                    network
+                )
+            }
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => {
                 log::error!("Network '{}' not found in trending pools API", network);
                 format!(
                     "❌ Network '{}' not found. Please check the network name and try again.",
                     network
                 )
-            } else if response.status() == 429 {
+            }
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
                 log::error!("Rate limit exceeded for trending pools API");
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
-                let status = response.status();
-                let error_text = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
+            }
+            GeckoRequestError::Api(messages) => {
                 log::error!(
-                    "Trending pools API request failed with status: {} - {}",
-                    status,
-                    error_text
+                    "GeckoTerminal API returned errors for trending pools on network {}: {:?}",
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling trending pools GeckoTerminal API after retries: {}",
+                    other
                 );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    status, error_text
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
                 )
             }
-        }
-        Err(e) => {
-            log::error!(
-                "Network error when calling trending pools GeckoTerminal API after retries: {}",
-                e
-            );
-            format!(
-                "❌ Network error when calling GeckoTerminal API after retries: {}",
-                e
-            )
-        }
+        },
     };
 
     result
@@ -176,12 +366,11 @@ fn format_trending_pools_response(
     network: &str,
     limit: u32,
     duration: &str,
-) -> GeckoContentStatus {
-    let pools = match data.get("data").and_then(|d| d.as_array()) {
-        Some(pools) if !pools.is_empty() => pools,
-        Some(_) => return GeckoContentStatus::NoPools,
-        None => return GeckoContentStatus::MissingData,
-    };
+) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
 
     let mut token_map = std::collections::HashMap::new();
     let mut dex_map = std::collections::HashMap::new();
@@ -444,7 +633,7 @@ fn format_trending_pools_response(
         pools.len()
     ));
 
-    GeckoContentStatus::HasContent(result)
+    Some(result)
 }
 
 
@@ -519,67 +708,80 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match send_gecko_request(&client, &url).await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        let result = format_search_pools_response(&data, query, Some(network));
-                        if result.trim().is_empty() {
-                            format!(
-                                "🔍 No pools found for query '{}'. The API returned valid data but no pools matched the criteria.",
-                                query
-                            )
-                        } else {
-                            result
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to parse search pools API response: {}", e);
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+    match send_gecko_request(&client, &url).await {
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_search_pools_response(&data, query, Some(network)) {
+                Some(rendered) if !rendered.trim().is_empty() => rendered,
+                _ => {
+                    log::warn!(
+                        "Search pools payload missing rendered content. Query: {} | Network: {}",
+                        query,
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for query '{}' on network '{}'.",
+                        query,
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
-                log::error!("No pools found for query '{}' (404 response)", query);
-                format!("❌ No pools found for query '{}'.", query)
-            } else if response.status() == 429 {
-                log::error!("Rate limit exceeded for search pools API");
-                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
-                let status = response.status();
-                let error_text = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
-                log::error!(
-                    "Search pools API request failed with status: {} - {}",
-                    status,
-                    error_text
+            },
+            GeckoPayloadState::Empty => format!(
+                "🔍 No pools found for '{}' on '{}'.",
+                query,
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "Search pools API response missing expected data array. Query: {} | Network: {}",
+                    query,
+                    network
                 );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    status, error_text
+                    "❌ GeckoTerminal returned a response without pool data for query '{}' on network '{}'. Please try again shortly.",
+                    query,
+                    network
                 )
             }
-        }
-        Err(e) => {
-            log::error!(
-                "Network error when calling search pools GeckoTerminal API after retries: {}",
-                e
-            );
-            format!(
-                "❌ Network error when calling GeckoTerminal API after retries: {}",
-                e
-            )
-        }
-    };
-    if result.trim().is_empty() {
-        format!(
-            "🔧 Debug: Function completed but result was empty. Query: {}",
-            query
-        )
-    } else {
-        result
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => {
+                log::error!("No pools found for query '{}' (404 response)", query);
+                format!("❌ No pools found for query '{}'.", query)
+            }
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
+                log::error!("Rate limit exceeded for search pools API");
+                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
+            }
+            GeckoRequestError::Api(messages) => {
+                log::error!(
+                    "GeckoTerminal API returned errors for pool search. Query: {} | Network: {} | Errors: {:?}",
+                    query,
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling search pools GeckoTerminal API after retries: {}",
+                    other
+                );
+                format!(
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
+                )
+            }
+        },
     }
 }
 
@@ -588,7 +790,12 @@ fn format_search_pools_response(
     data: &serde_json::Value,
     query: &str,
     network: Option<&str>,
-) -> String {
+) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
+
     let mut result = String::new();
     result.push_str(&format!(
         "🔍 **Search Results for '{}'{}**\n\n",
@@ -613,11 +820,7 @@ fn format_search_pools_response(
             }
         }
     }
-    if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
-        if pools.is_empty() {
-            result.push_str("No pools found for this query.\n");
-        } else {
-            for (index, pool) in pools.iter().enumerate() {
+    for (index, pool) in pools.iter().enumerate() {
                 if let Some(attributes) = pool.get("attributes") {
                     let name = attributes
                         .get("name")
@@ -730,17 +933,14 @@ fn format_search_pools_response(
                     ));
                 }
             }
-            result.push_str(&format!(
-                "🌐 Network: {} • Showing {}/{} pools",
-                network.map(|n| n.to_uppercase()).unwrap_or_default(),
-                pools.len(),
-                pools.len()
-            ));
-        }
-    } else {
-        result.push_str("❌ No pool data found in API response.");
-    }
-    result
+    result.push_str(&format!(
+        "🌐 Network: {} • Showing {}/{} pools",
+        network.map(|n| n.to_uppercase()).unwrap_or_default(),
+        pools.len(),
+        pools.len()
+    ));
+
+    Some(result)
 }
 
 /// Execute new pools fetch from GeckoTerminal
@@ -766,68 +966,83 @@ pub async fn execute_new_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match send_gecko_request(&client, &url).await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => match format_new_pools_response(&data, network) {
-                        GeckoContentStatus::HasContent(result) => result,
-                        GeckoContentStatus::NoPools => format!(
-                            "✨ No new pools found for {} network. GeckoTerminal reported an empty pool list.",
-                            network
-                        ),
-                        GeckoContentStatus::MissingData => {
-                            log::warn!(
-                                "New pools API response missing expected data array for network {}",
-                                network
-                            );
-                            format!(
-                                "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
-                                network
-                            )
-                        }
-                    },
-                    Err(e) => {
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+    match send_gecko_request(&client, &url).await {
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_new_pools_response(&data, network) {
+                Some(rendered) => rendered,
+                None => {
+                    log::warn!(
+                        "New pools payload missing detailed pool data for network {} despite populated classification",
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
+            },
+            GeckoPayloadState::Empty => format!(
+                "✨ No new pools found for {} network. GeckoTerminal reported an empty pool list.",
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "New pools API response missing expected data array for network {}",
+                    network
+                );
                 format!(
-                    "❌ Network '{}' not found. Please check the network name and try again.",
+                    "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
                     network
                 )
-            } else if response.status() == 429 {
+            }
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => format!(
+                "❌ Network '{}' not found. Please check the network name and try again.",
+                network
+            ),
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
+            }
+            GeckoRequestError::Api(messages) => {
+                log::error!(
+                    "GeckoTerminal API returned errors for new pools on network {}: {:?}",
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling new pools GeckoTerminal API after retries: {}",
+                    other
+                );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    response.status(),
-                    response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string())
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
                 )
             }
-        }
-        Err(e) => {
-            format!(
-                "❌ Network error when calling GeckoTerminal API after retries: {}",
-                e
-            )
-        }
-    };
-
-    result
+        },
+    }
 }
 
 /// Format the new pools API response into a readable string
 
-fn format_new_pools_response(data: &serde_json::Value, network: &str) -> GeckoContentStatus {
-    let pools = match data.get("data").and_then(|d| d.as_array()) {
-        Some(pools) if !pools.is_empty() => pools,
-        Some(_) => return GeckoContentStatus::NoPools,
-        None => return GeckoContentStatus::MissingData,
-    };
+fn format_new_pools_response(data: &serde_json::Value, network: &str) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
 
     let mut result = format!("✨ **Newest Pools on {}**\n\n", network.to_uppercase());
 
@@ -968,7 +1183,7 @@ fn format_new_pools_response(data: &serde_json::Value, network: &str) -> GeckoCo
         }
     }
 
-    GeckoContentStatus::HasContent(result)
+    Some(result)
 }
 
 
