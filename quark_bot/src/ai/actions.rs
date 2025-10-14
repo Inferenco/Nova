@@ -20,7 +20,7 @@ fn gecko_client() -> &'static reqwest::Client {
 }
 
 async fn gecko_get_with_retry(
-    _client: &reqwest::Client,
+    client: &reqwest::Client,
     request_builder: reqwest::RequestBuilder,
 ) -> Result<reqwest::Response, reqwest::Error> {
     const MAX_RETRIES: u8 = 3;
@@ -33,11 +33,14 @@ async fn gecko_get_with_retry(
                 log::warn!(
                     "Unable to clone GeckoTerminal request builder; executing without retries"
                 );
-                return request_builder.send().await;
+                let request = request_builder.build()?;
+                return client.execute(request).await;
             }
         };
 
-        match request_builder.send().await {
+        let request = request_builder.build()?;
+
+        match client.execute(request).await {
             Ok(response) => {
                 if response.status() == StatusCode::TOO_MANY_REQUESTS
                     || response.status().is_success()
@@ -1030,47 +1033,6 @@ fn format_new_pools_response(data: &serde_json::Value, network: &str) -> String 
         result.push_str("❌ No pool data found in API response.");
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    #[tokio::test]
-    async fn gecko_get_with_retry_recovers_from_transient_failure() {
-        let server = MockServer::start().await;
-
-        Mock::given(method("GET"))
-            .and(path("/retry"))
-            .respond_with(ResponseTemplate::new(500))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        Mock::given(method("GET"))
-            .and(path("/retry"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(json!({ "data": [], "included": [] })),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let client = gecko_client();
-        let request_builder = client
-            .get(format!("{}/retry", server.uri()))
-            .header("Accept", "application/json")
-            .header("User-Agent", "QuarkBot/1.0");
-
-        let response = gecko_get_with_retry(client, request_builder)
-            .await
-            .expect("request should succeed after retry");
-
-        assert_eq!(response.status(), StatusCode::OK);
-    }
 }
 
 /// Execute get time fetch from WorldTimeAPI

@@ -35,6 +35,3 @@ futures = { workspace = true }
 rand = {workspace = true}
 ron = { workspace = true }
 ammonia = "3.3"
-
-[dev-dependencies]
-wiremock = "0.6"
