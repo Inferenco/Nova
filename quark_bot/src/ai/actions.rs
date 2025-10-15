@@ -1,14 +1,218 @@
 use std::env;
 
 use chrono::Utc;
+use reqwest::StatusCode;
 use quark_core::helpers::dto::CoinVersion;
 use teloxide::Bot;
 use teloxide::prelude::Requester;
 use teloxide::types::{ChatId, Message};
+use tokio::time::{sleep, Duration};
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
 use crate::pending_transactions::dto::PendingTransaction;
+use crate::ai::{
+    GeckoRequestError, GeckoPayloadShape, GeckoPayloadState,
+    GECKO_MAX_RETRIES, GECKO_RETRY_BASE_DELAY_MS,
+};
+
+
+/// Execute a GeckoTerminal request with retry/backoff logic and return the parsed JSON body.
+async fn send_gecko_request(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<serde_json::Value, GeckoRequestError> {
+    let mut attempt = 0;
+    loop {
+        let attempt_number = attempt + 1;
+        match client
+            .get(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "QuarkBot/1.0")
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                let body = match response.text().await {
+                    Ok(body) => body,
+                    Err(error) => {
+                        if attempt_number >= GECKO_MAX_RETRIES {
+                            log::error!(
+                                "Failed to read GeckoTerminal response after {} attempts: {} (url: {})",
+                                attempt_number,
+                                error,
+                                url
+                            );
+                            return Err(GeckoRequestError::ResponseRead(error));
+                        }
+
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "Reading GeckoTerminal response failed on attempt {}: {}. Retrying in {}ms...",
+                            attempt_number,
+                            error,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+                };
+
+                if !status.is_success() {
+                    let should_retry =
+                        status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS;
+                    if should_retry && attempt_number < GECKO_MAX_RETRIES {
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "GeckoTerminal request returned status {} on attempt {}. Retrying in {}ms...",
+                            status,
+                            attempt_number,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+
+                    log::error!(
+                        "GeckoTerminal request failed with status {} after {} attempts (url: {}): {}",
+                        status,
+                        attempt_number,
+                        url,
+                        body
+                    );
+                    return Err(GeckoRequestError::Http { status, body });
+                }
+
+                match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(json) => {
+                        if let Some(errors) = json.get("errors").and_then(|v| v.as_array()) {
+                            if !errors.is_empty() {
+                                let messages: Vec<String> = errors
+                                    .iter()
+                                    .map(|error| {
+                                        error
+                                            .get("detail")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                            .or_else(|| {
+                                                error
+                                                    .get("title")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|s| s.to_string())
+                                            })
+                                            .unwrap_or_else(|| error.to_string())
+                                    })
+                                    .collect();
+                                if attempt_number >= GECKO_MAX_RETRIES {
+                                    log::error!(
+                                        "GeckoTerminal API returned error payload after {} attempts (url: {}): {:?}",
+                                        attempt_number,
+                                        url,
+                                        messages
+                                    );
+                                    return Err(GeckoRequestError::Api(messages));
+                                }
+
+                                let delay =
+                                    Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                                log::warn!(
+                                    "GeckoTerminal API returned error payload on attempt {}: {:?}. Retrying in {}ms...",
+                                    attempt_number,
+                                    messages,
+                                    delay.as_millis()
+                                );
+                                sleep(delay).await;
+                                attempt += 1;
+                                continue;
+                            }
+                        }
+
+                        return Ok(json);
+                    }
+                    Err(error) => {
+                        if attempt_number >= GECKO_MAX_RETRIES {
+                            log::error!(
+                                "Failed to parse GeckoTerminal JSON after {} attempts: {} (url: {})",
+                                attempt_number,
+                                error,
+                                url
+                            );
+                            return Err(GeckoRequestError::Parse(error));
+                        }
+
+                        let delay =
+                            Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                        log::warn!(
+                            "Parsing GeckoTerminal payload failed on attempt {}: {}. Retrying in {}ms...",
+                            attempt_number,
+                            error,
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+            }
+            Err(error) => {
+                if attempt_number >= GECKO_MAX_RETRIES {
+                    log::error!(
+                        "GeckoTerminal request failed after {} attempts: {} (url: {})",
+                        attempt_number,
+                        error,
+                        url
+                    );
+                    return Err(GeckoRequestError::Network(error));
+                }
+
+                let delay = Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                log::warn!(
+                    "GeckoTerminal request attempt {} failed: {}. Retrying in {}ms...",
+                    attempt_number,
+                    error,
+                    delay.as_millis()
+                );
+                sleep(delay).await;
+            }
+        }
+
+        attempt += 1;
+    }
+}
+
+/// Determine whether the provided GeckoTerminal JSON payload contains usable data for the requested shape.
+fn classify_gecko_payload(data: &serde_json::Value, shape: GeckoPayloadShape) -> GeckoPayloadState {
+    let Some(payload) = data.get("data") else {
+        return GeckoPayloadState::Missing;
+    };
+
+    match payload {
+        serde_json::Value::Null => GeckoPayloadState::Missing,
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                GeckoPayloadState::Empty
+            } else {
+                GeckoPayloadState::Populated
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                match shape {
+                    GeckoPayloadShape::Collection => GeckoPayloadState::Empty,
+                    GeckoPayloadShape::Object => GeckoPayloadState::Missing,
+                }
+            } else {
+                GeckoPayloadState::Populated
+            }
+        }
+        _ => GeckoPayloadState::Populated,
+    }
+}
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
@@ -46,94 +250,100 @@ pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        let result =
-                            format_trending_pools_response(&data, network, limit, duration);
-                        // Ensure we never return an empty string to prevent Telegram error
-                        if result.trim().is_empty() {
-                            format!(
-                                "📊 No trending pools found for {} network. The API returned valid data but no pools matched the criteria.",
-                                network
-                            )
-                        } else {
-                            result
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to parse trending pools API response: {}", e);
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+    let result = match send_gecko_request(&client, &url).await {
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_trending_pools_response(
+                &data,
+                network,
+                limit,
+                duration,
+            ) {
+                Some(rendered) => rendered,
+                None => {
+                    log::warn!(
+                        "Trending pools payload missing detailed pool data for network {} despite populated classification",
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
+            },
+            GeckoPayloadState::Empty => format!(
+                "📊 No trending pools found for {} network. The API returned an empty pool list.",
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "Trending pools API response missing expected data array for network {}",
+                    network
+                );
+                format!(
+                    "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                    network
+                )
+            }
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => {
                 log::error!("Network '{}' not found in trending pools API", network);
                 format!(
                     "❌ Network '{}' not found. Please check the network name and try again.",
                     network
                 )
-            } else if response.status() == 429 {
+            }
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
                 log::error!("Rate limit exceeded for trending pools API");
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
-                let status = response.status();
-                let error_text = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
+            }
+            GeckoRequestError::Api(messages) => {
                 log::error!(
-                    "Trending pools API request failed with status: {} - {}",
-                    status,
-                    error_text
+                    "GeckoTerminal API returned errors for trending pools on network {}: {:?}",
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling trending pools GeckoTerminal API after retries: {}",
+                    other
                 );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    status, error_text
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
                 )
             }
-        }
-        Err(e) => {
-            log::error!(
-                "Network error when calling trending pools GeckoTerminal API: {}",
-                e
-            );
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
-        }
+        },
     };
 
-    // Final safety check to prevent empty responses
-    if result.trim().is_empty() {
-        format!(
-            "🔧 Debug: Function completed but result was empty. Network: {}, URL attempted",
-            network
-        )
-    } else {
-        result
-    }
+    result
 }
 
 /// Format the trending pools API response into a readable string
+
 fn format_trending_pools_response(
     data: &serde_json::Value,
     network: &str,
     limit: u32,
     duration: &str,
-) -> String {
-    let mut result = format!(
-        "🔥 **Trending Pools on {} ({})**\n\n",
-        network.to_uppercase(),
-        duration
-    );
+) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
 
-    // Build lookup maps for tokens and DEXes from included array
     let mut token_map = std::collections::HashMap::new();
     let mut dex_map = std::collections::HashMap::new();
     if let Some(included) = data.get("included").and_then(|d| d.as_array()) {
@@ -152,205 +362,199 @@ fn format_trending_pools_response(
         }
     }
 
-    if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
-        let pools_to_show: Vec<_> = pools.iter().take(limit as usize).collect();
-        for (index, pool) in pools_to_show.iter().enumerate() {
-            if let Some(attributes) = pool.get("attributes") {
-                let name = attributes
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown Pool");
-                let pool_address = attributes
-                    .get("address")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let pool_created_at = attributes
-                    .get("pool_created_at")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown");
-                let fdv_usd = attributes
-                    .get("fdv_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let market_cap_usd = attributes
-                    .get("market_cap_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let reserve_usd = attributes
-                    .get("reserve_in_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let base_token_price = attributes
-                    .get("base_token_price_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let quote_token_price = attributes
-                    .get("quote_token_price_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let price_changes = if let Some(pcp) = attributes.get("price_change_percentage") {
-                    let h1 = pcp.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
-                    let h6 = pcp.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
-                    let h24 = pcp.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
-                    format!("1h: {}% | 6h: {}% | 24h: {}%", h1, h6, h24)
-                } else {
-                    "No data".to_string()
-                };
-                let volumes = if let Some(vol) = attributes.get("volume_usd") {
-                    let h5m = vol.get("h5m").and_then(|v| v.as_str()).unwrap_or("0");
-                    let h1 = vol.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
-                    let h6 = vol.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
-                    let h24 = vol.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
-                    format!(
-                        "5m: ${} | 1h: ${} | 6h: ${} | 24h: ${}",
-                        format_large_number(h5m),
-                        format_large_number(h1),
-                        format_large_number(h6),
-                        format_large_number(h24)
-                    )
-                } else {
-                    "No data".to_string()
-                };
-                let transactions = if let Some(txns) = attributes.get("transactions") {
-                    let h5m = txns
-                        .get("h5m")
-                        .and_then(|v| v.get("buys"))
-                        .and_then(|b| b.as_u64())
-                        .unwrap_or(0)
-                        + txns
-                            .get("h5m")
-                            .and_then(|v| v.get("sells"))
-                            .and_then(|s| s.as_u64())
-                            .unwrap_or(0);
-                    let h1 = txns
-                        .get("h1")
-                        .and_then(|v| v.get("buys"))
-                        .and_then(|b| b.as_u64())
-                        .unwrap_or(0)
-                        + txns
-                            .get("h1")
-                            .and_then(|v| v.get("sells"))
-                            .and_then(|s| s.as_u64())
-                            .unwrap_or(0);
-                    let h24 = txns
-                        .get("h24")
-                        .and_then(|v| v.get("buys"))
-                        .and_then(|b| b.as_u64())
-                        .unwrap_or(0)
-                        + txns
-                            .get("h24")
-                            .and_then(|v| v.get("sells"))
-                            .and_then(|s| s.as_u64())
-                            .unwrap_or(0);
-                    format!("5m: {} | 1h: {} | 24h: {}", h5m, h1, h24)
-                } else {
-                    "No data".to_string()
-                };
-                let main_change_24h = attributes
-                    .get("price_change_percentage")
-                    .and_then(|v| v.get("h24"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                let price_change_formatted = if let Ok(change) = main_change_24h.parse::<f64>() {
-                    if change >= 0.0 {
-                        format!("📈 +{:.2}%", change)
-                    } else {
-                        format!("📉 {:.2}%", change)
-                    }
-                } else {
-                    "➡️ 0.00%".to_string()
-                };
-                let liquidity_formatted = format_large_number(reserve_usd);
-                let base_price_formatted = format_price(base_token_price);
-                let quote_price_formatted = format_price(quote_token_price);
-                let fdv_formatted = format_large_number(fdv_usd);
-                let mcap_formatted = format_large_number(market_cap_usd);
-                let created_date = if pool_created_at != "Unknown" {
-                    pool_created_at.split('T').next().unwrap_or(pool_created_at)
-                } else {
-                    "Unknown"
-                };
+    let mut result = format!(
+        "🔥 **Trending Pools on {} ({})**\n\n",
+        network.to_uppercase(),
+        duration
+    );
 
-                // --- ENRICH WITH TOKEN & DEX INFO ---
-                let (base_token_info, quote_token_info, dex_info) =
-                    if let Some(relationships) = pool.get("relationships") {
-                        let base_token_id = relationships
-                            .get("base_token")
-                            .and_then(|r| r.get("data"))
-                            .and_then(|d| d.get("id"))
-                            .and_then(|v| v.as_str());
-                        let quote_token_id = relationships
-                            .get("quote_token")
-                            .and_then(|r| r.get("data"))
-                            .and_then(|d| d.get("id"))
-                            .and_then(|v| v.as_str());
-                        let dex_id = relationships
-                            .get("dex")
-                            .and_then(|r| r.get("data"))
-                            .and_then(|d| d.get("id"))
-                            .and_then(|v| v.as_str());
-                        (
-                            base_token_id.and_then(|id| token_map.get(id)),
-                            quote_token_id.and_then(|id| token_map.get(id)),
-                            dex_id.and_then(|id| dex_map.get(id)),
-                        )
-                    } else {
-                        (None, None, None)
-                    };
+    let mut displayed = 0_usize;
+    for pool in pools.iter() {
+        if displayed >= limit as usize {
+            break;
+        }
 
-                // Base token details
-                let (base_name, base_symbol, base_addr, base_dec, base_cg) =
-                    if let Some(token) = base_token_info {
-                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
-                        (
-                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("decimals")
-                                .and_then(|v| v.as_u64())
-                                .map(|d| d.to_string())
-                                .unwrap_or("?".to_string()),
-                            attr.get("coingecko_coin_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-"),
-                        )
-                    } else {
-                        ("?", "?", "?", "?".to_string(), "-")
-                    };
-                // Quote token details
-                let (quote_name, quote_symbol, quote_addr, quote_dec, quote_cg) =
-                    if let Some(token) = quote_token_info {
-                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
-                        (
-                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("decimals")
-                                .and_then(|v| v.as_u64())
-                                .map(|d| d.to_string())
-                                .unwrap_or("?".to_string()),
-                            attr.get("coingecko_coin_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-"),
-                        )
-                    } else {
-                        ("?", "?", "?", "?".to_string(), "-")
-                    };
-                // DEX details
-                let dex_name = if let Some(dex) = dex_info {
-                    dex.get("attributes")
-                        .and_then(|a| a.get("name"))
+        let Some(attributes) = pool.get("attributes") else {
+            continue;
+        };
+
+        displayed += 1;
+
+        let name = attributes
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown Pool");
+        let pool_address = attributes
+            .get("address")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let pool_created_at = attributes
+            .get("pool_created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown");
+        let fdv_usd = attributes
+            .get("fdv_usd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
+        let market_cap_usd = attributes
+            .get("market_cap_usd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
+        let reserve_usd = attributes
+            .get("reserve_in_usd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
+        let base_token_price = attributes
+            .get("base_token_price_usd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
+        let quote_token_price = attributes
+            .get("quote_token_price_usd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
+
+        let price_changes = attributes
+            .get("price_change_percentage")
+            .map(|pcp| {
+                let h1 = pcp.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
+                let h6 = pcp.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
+                let h24 = pcp.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
+                format!("1h: {}% | 6h: {}% | 24h: {}%", h1, h6, h24)
+            })
+            .unwrap_or_else(|| "No data".to_string());
+
+        let volumes = attributes
+            .get("volume_usd")
+            .map(|volume| {
+                let h5m = volume.get("h5m").and_then(|v| v.as_str()).unwrap_or("0");
+                let h1 = volume.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
+                let h6 = volume.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
+                let h24 = volume.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
+                format!(
+                    "5m: ${} | 1h: ${} | 6h: ${} | 24h: ${}",
+                    format_large_number(h5m),
+                    format_large_number(h1),
+                    format_large_number(h6),
+                    format_large_number(h24)
+                )
+            })
+            .unwrap_or_else(|| "No data".to_string());
+
+        let transactions = attributes
+            .get("transactions")
+            .map(|txns| {
+                let aggregate = |key: &str| {
+                    txns.get(key)
+                        .map(|window| {
+                            let buys = window.get("buys").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let sells = window.get("sells").and_then(|v| v.as_u64()).unwrap_or(0);
+                            buys + sells
+                        })
+                        .unwrap_or(0)
+                };
+                format!(
+                    "5m: {} | 1h: {} | 24h: {}",
+                    aggregate("h5m"),
+                    aggregate("h1"),
+                    aggregate("h24")
+                )
+            })
+            .unwrap_or_else(|| "No data".to_string());
+
+        let price_change_formatted = attributes
+            .get("price_change_percentage")
+            .and_then(|v| v.get("h24"))
+            .and_then(|v| v.as_str())
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|value| if value >= 0.0 { format!("📈 +{:.2}%", value) } else { format!("📉 {:.2}%", value) })
+            .unwrap_or_else(|| "➡️ 0.00%".to_string());
+
+        let liquidity_formatted = format_large_number(reserve_usd);
+        let base_price_formatted = format_price(base_token_price);
+        let quote_price_formatted = format_price(quote_token_price);
+        let fdv_formatted = format_large_number(fdv_usd);
+        let mcap_formatted = format_large_number(market_cap_usd);
+        let created_date = if pool_created_at != "Unknown" {
+            pool_created_at.split('T').next().unwrap_or(pool_created_at)
+        } else {
+            "Unknown"
+        };
+
+        let (base_token_info, quote_token_info, dex_info) = pool
+            .get("relationships")
+            .map(|relationships| {
+                let base_token_id = relationships
+                    .get("base_token")
+                    .and_then(|r| r.get("data"))
+                    .and_then(|d| d.get("id"))
+                    .and_then(|v| v.as_str());
+                let quote_token_id = relationships
+                    .get("quote_token")
+                    .and_then(|r| r.get("data"))
+                    .and_then(|d| d.get("id"))
+                    .and_then(|v| v.as_str());
+                let dex_id = relationships
+                    .get("dex")
+                    .and_then(|r| r.get("data"))
+                    .and_then(|d| d.get("id"))
+                    .and_then(|v| v.as_str());
+                (
+                    base_token_id.and_then(|id| token_map.get(id)),
+                    quote_token_id.and_then(|id| token_map.get(id)),
+                    dex_id.and_then(|id| dex_map.get(id)),
+                )
+            })
+            .unwrap_or((None, None, None));
+
+        let (base_name, base_symbol, base_addr, base_dec, base_cg) = base_token_info
+            .and_then(|token| token.get("attributes"))
+            .map(|attr| {
+                (
+                    attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("decimals")
+                        .and_then(|v| v.as_u64())
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "?".to_string()),
+                    attr.get("coingecko_coin_id")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown DEX")
-                } else {
-                    attributes
-                        .get("dex_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown DEX")
-                };
+                        .unwrap_or("-"),
+                )
+            })
+            .unwrap_or(("?", "?", "?", "?".to_string(), "-"));
 
-                result.push_str(&format!(
-                    "**{}. {} ({})** {}\n\
+        let (quote_name, quote_symbol, quote_addr, quote_dec, quote_cg) = quote_token_info
+            .and_then(|token| token.get("attributes"))
+            .map(|attr| {
+                (
+                    attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("decimals")
+                        .and_then(|v| v.as_u64())
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "?".to_string()),
+                    attr.get("coingecko_coin_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-"),
+                )
+            })
+            .unwrap_or(("?", "?", "?", "?".to_string(), "-"));
+
+        let dex_name = dex_info
+            .and_then(|dex| dex.get("attributes"))
+            .and_then(|attr| attr.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| {
+                attributes
+                    .get("dex_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown DEX")
+            });
+
+        result.push_str(&format!(
+            "**{}. {} ({})** {}\n\
 🔹 **Base Token:** {} ({})\n  - Address: `{}`\n  - Decimals: {}\n  - CoinGecko: {}\n\
 🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n  - Decimals: {}\n  - CoinGecko: {}\n\
 🏦 **DEX:** {}\n\
@@ -363,54 +567,47 @@ fn format_trending_pools_response(
 📅 **Created:** {}\n\
 🏊 **Pool:** `{}`\n\
 🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
-                    index + 1,
-                    name,
-                    dex_name,
-                    price_change_formatted,
-                    base_name,
-                    base_symbol,
-                    base_addr,
-                    base_dec,
-                    base_cg,
-                    quote_name,
-                    quote_symbol,
-                    quote_addr,
-                    quote_dec,
-                    quote_cg,
-                    dex_name,
-                    base_price_formatted,
-                    quote_price_formatted,
-                    volumes,
-                    price_changes,
-                    transactions,
-                    liquidity_formatted,
-                    mcap_formatted,
-                    fdv_formatted,
-                    created_date,
-                    pool_address,
-                    network,
-                    pool_address
-                ));
-            }
-        }
-        if pools.is_empty() {
-            result.push_str("No trending pools found for this network.\n");
-        } else {
-            result.push_str(&format!(
-                "📈 Data from GeckoTerminal • Updates every 30 seconds\n"
-            ));
-            result.push_str(&format!(
-                "🌐 Network: {} • Showing {}/{} pools",
-                network.to_uppercase(),
-                pools_to_show.len(),
-                pools.len()
-            ));
-        }
-    } else {
-        result.push_str("❌ No pool data found in API response.");
+            displayed,
+            name,
+            dex_name,
+            price_change_formatted,
+            base_name,
+            base_symbol,
+            base_addr,
+            base_dec,
+            base_cg,
+            quote_name,
+            quote_symbol,
+            quote_addr,
+            quote_dec,
+            quote_cg,
+            dex_name,
+            base_price_formatted,
+            quote_price_formatted,
+            volumes,
+            price_changes,
+            transactions,
+            liquidity_formatted,
+            mcap_formatted,
+            fdv_formatted,
+            created_date,
+            pool_address,
+            network,
+            pool_address
+        ));
     }
-    result
+
+    result.push_str("📈 Data from GeckoTerminal • Updates every 30 seconds\n");
+    result.push_str(&format!(
+        "🌐 Network: {} • Showing {}/{} pools",
+        network.to_uppercase(),
+        displayed,
+        pools.len()
+    ));
+
+    Some(result)
 }
+
 
 /// Format large numbers with appropriate suffixes (K, M, B)
 fn format_large_number(num_str: &str) -> String {
@@ -483,70 +680,80 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        let result = format_search_pools_response(&data, query, Some(network));
-                        if result.trim().is_empty() {
-                            format!(
-                                "🔍 No pools found for query '{}'. The API returned valid data but no pools matched the criteria.",
-                                query
-                            )
-                        } else {
-                            result
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to parse search pools API response: {}", e);
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+    match send_gecko_request(&client, &url).await {
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_search_pools_response(&data, query, Some(network)) {
+                Some(rendered) if !rendered.trim().is_empty() => rendered,
+                _ => {
+                    log::warn!(
+                        "Search pools payload missing rendered content. Query: {} | Network: {}",
+                        query,
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for query '{}' on network '{}'.",
+                        query,
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
-                log::error!("No pools found for query '{}' (404 response)", query);
-                format!("❌ No pools found for query '{}'.", query)
-            } else if response.status() == 429 {
-                log::error!("Rate limit exceeded for search pools API");
-                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
-                let status = response.status();
-                let error_text = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
-                log::error!(
-                    "Search pools API request failed with status: {} - {}",
-                    status,
-                    error_text
+            },
+            GeckoPayloadState::Empty => format!(
+                "🔍 No pools found for '{}' on '{}'.",
+                query,
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "Search pools API response missing expected data array. Query: {} | Network: {}",
+                    query,
+                    network
                 );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    status, error_text
+                    "❌ GeckoTerminal returned a response without pool data for query '{}' on network '{}'. Please try again shortly.",
+                    query,
+                    network
                 )
             }
-        }
-        Err(e) => {
-            log::error!(
-                "Network error when calling search pools GeckoTerminal API: {}",
-                e
-            );
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
-        }
-    };
-    if result.trim().is_empty() {
-        format!(
-            "🔧 Debug: Function completed but result was empty. Query: {}",
-            query
-        )
-    } else {
-        result
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => {
+                log::error!("No pools found for query '{}' (404 response)", query);
+                format!("❌ No pools found for query '{}'.", query)
+            }
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
+                log::error!("Rate limit exceeded for search pools API");
+                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
+            }
+            GeckoRequestError::Api(messages) => {
+                log::error!(
+                    "GeckoTerminal API returned errors for pool search. Query: {} | Network: {} | Errors: {:?}",
+                    query,
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling search pools GeckoTerminal API after retries: {}",
+                    other
+                );
+                format!(
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
+                )
+            }
+        },
     }
 }
 
@@ -555,7 +762,12 @@ fn format_search_pools_response(
     data: &serde_json::Value,
     query: &str,
     network: Option<&str>,
-) -> String {
+) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
+
     let mut result = String::new();
     result.push_str(&format!(
         "🔍 **Search Results for '{}'{}**\n\n",
@@ -580,11 +792,7 @@ fn format_search_pools_response(
             }
         }
     }
-    if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
-        if pools.is_empty() {
-            result.push_str("No pools found for this query.\n");
-        } else {
-            for (index, pool) in pools.iter().enumerate() {
+    for (index, pool) in pools.iter().enumerate() {
                 if let Some(attributes) = pool.get("attributes") {
                     let name = attributes
                         .get("name")
@@ -697,17 +905,14 @@ fn format_search_pools_response(
                     ));
                 }
             }
-            result.push_str(&format!(
-                "🌐 Network: {} • Showing {}/{} pools",
-                network.map(|n| n.to_uppercase()).unwrap_or_default(),
-                pools.len(),
-                pools.len()
-            ));
-        }
-    } else {
-        result.push_str("❌ No pool data found in API response.");
-    }
-    result
+    result.push_str(&format!(
+        "🌐 Network: {} • Showing {}/{} pools",
+        network.map(|n| n.to_uppercase()).unwrap_or_default(),
+        pools.len(),
+        pools.len()
+    ));
+
+    Some(result)
 }
 
 /// Execute new pools fetch from GeckoTerminal
@@ -733,71 +938,86 @@ pub async fn execute_new_pools(arguments: &serde_json::Value) -> String {
 
     // Make HTTP request
     let client = reqwest::Client::new();
-    let result = match client
-        .get(&url)
-        .header("Accept", "application/json")
-        .header("User-Agent", "QuarkBot/1.0")
-        .send()
-        .await
-    {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        let result = format_new_pools_response(&data, network);
-                        // Ensure we never return an empty string to prevent Telegram error
-                        if result.trim().is_empty() {
-                            format!(
-                                "✨ No new pools found for {} network. The API returned valid data but no pools matched the criteria.",
-                                network
-                            )
-                        } else {
-                            result
-                        }
-                    }
-                    Err(e) => {
-                        format!("❌ Error parsing API response: {}", e)
-                    }
+    match send_gecko_request(&client, &url).await {
+        Ok(data) => match classify_gecko_payload(&data, GeckoPayloadShape::Collection) {
+            GeckoPayloadState::Populated => match format_new_pools_response(&data, network) {
+                Some(rendered) => rendered,
+                None => {
+                    log::warn!(
+                        "New pools payload missing detailed pool data for network {} despite populated classification",
+                        network
+                    );
+                    format!(
+                        "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
+                        network
+                    )
                 }
-            } else if response.status() == 404 {
+            },
+            GeckoPayloadState::Empty => format!(
+                "✨ No new pools found for {} network. GeckoTerminal reported an empty pool list.",
+                network
+            ),
+            GeckoPayloadState::Missing => {
+                log::warn!(
+                    "New pools API response missing expected data array for network {}",
+                    network
+                );
                 format!(
-                    "❌ Network '{}' not found. Please check the network name and try again.",
+                    "❌ GeckoTerminal returned a response without pool data for network '{}'. Please try again shortly.",
                     network
                 )
-            } else if response.status() == 429 {
+            }
+        },
+        Err(error) => match error {
+            GeckoRequestError::Http {
+                status: StatusCode::NOT_FOUND,
+                ..
+            } => format!(
+                "❌ Network '{}' not found. Please check the network name and try again.",
+                network
+            ),
+            GeckoRequestError::Http {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                ..
+            } => {
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
-            } else {
+            }
+            GeckoRequestError::Api(messages) => {
+                log::error!(
+                    "GeckoTerminal API returned errors for new pools on network {}: {:?}",
+                    network,
+                    messages
+                );
+                if messages.is_empty() {
+                    "❌ GeckoTerminal returned an error response without details.".to_string()
+                } else {
+                    format!("❌ GeckoTerminal error: {}", messages.join(" | "))
+                }
+            }
+            other => {
+                log::error!(
+                    "Network error when calling new pools GeckoTerminal API after retries: {}",
+                    other
+                );
                 format!(
-                    "❌ API request failed with status: {} - {}",
-                    response.status(),
-                    response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string())
+                    "❌ Network error when calling GeckoTerminal API after retries: {}",
+                    other
                 )
             }
-        }
-        Err(e) => {
-            format!("❌ Network error when calling GeckoTerminal API: {}", e)
-        }
-    };
-
-    // Final safety check to prevent empty responses
-    if result.trim().is_empty() {
-        format!(
-            "🔧 Debug: Function completed but result was empty. Network: {}, URL attempted: {}",
-            network, url
-        )
-    } else {
-        result
+        },
     }
 }
 
 /// Format the new pools API response into a readable string
-fn format_new_pools_response(data: &serde_json::Value, network: &str) -> String {
+
+fn format_new_pools_response(data: &serde_json::Value, network: &str) -> Option<String> {
+    let pools = data.get("data").and_then(|d| d.as_array())?;
+    if pools.is_empty() {
+        return None;
+    }
+
     let mut result = format!("✨ **Newest Pools on {}**\n\n", network.to_uppercase());
 
-    // Build lookup maps for tokens and DEXes from included array
     let mut token_map = std::collections::HashMap::new();
     let mut dex_map = std::collections::HashMap::new();
     if let Some(included) = data.get("included").and_then(|d| d.as_array()) {
@@ -816,149 +1036,128 @@ fn format_new_pools_response(data: &serde_json::Value, network: &str) -> String 
         }
     }
 
-    if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
-        if pools.is_empty() {
-            result.push_str("No new pools found for this network.\n");
-        } else {
-            for (index, pool) in pools.iter().enumerate() {
-                if let Some(attributes) = pool.get("attributes") {
-                    let name = attributes
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown Pool");
-                    let pool_address = attributes
-                        .get("address")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let pool_created_at = attributes
-                        .get("pool_created_at")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown");
-                    let reserve_usd = attributes
-                        .get("reserve_in_usd")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("0");
-                    let base_token_price = attributes
-                        .get("base_token_price_usd")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("0");
+    for (index, pool) in pools.iter().enumerate() {
+        if let Some(attributes) = pool.get("attributes") {
+            let name = attributes
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown Pool");
+            let pool_address = attributes
+                .get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let pool_created_at = attributes
+                .get("pool_created_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let reserve_usd = attributes
+                .get("reserve_in_usd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0");
+            let base_token_price = attributes
+                .get("base_token_price_usd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0");
+            let quote_token_price = attributes
+                .get("quote_token_price_usd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0");
 
-                    let main_change_24h = attributes
-                        .get("price_change_percentage")
-                        .and_then(|v| v.get("h24"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("0");
-                    let price_change_formatted = if let Ok(change) = main_change_24h.parse::<f64>()
-                    {
-                        if change >= 0.0 {
-                            format!("📈 +{:.2}%", change)
-                        } else {
-                            format!("📉 {:.2}%", change)
-                        }
-                    } else {
-                        "➡️ 0.00%".to_string()
-                    };
+            let (base_token_info, quote_token_info, dex_info) =
+                if let Some(relationships) = pool.get("relationships") {
+                    let base_token_id = relationships
+                        .get("base_token")
+                        .and_then(|r| r.get("data"))
+                        .and_then(|d| d.get("id"))
+                        .and_then(|v| v.as_str());
+                    let quote_token_id = relationships
+                        .get("quote_token")
+                        .and_then(|r| r.get("data"))
+                        .and_then(|d| d.get("id"))
+                        .and_then(|v| v.as_str());
+                    let dex_id = relationships
+                        .get("dex")
+                        .and_then(|r| r.get("data"))
+                        .and_then(|d| d.get("id"))
+                        .and_then(|v| v.as_str());
+                    (
+                        base_token_id.and_then(|id| token_map.get(id)),
+                        quote_token_id.and_then(|id| token_map.get(id)),
+                        dex_id.and_then(|id| dex_map.get(id)),
+                    )
+                } else {
+                    (None, None, None)
+                };
 
-                    let liquidity_formatted = format_large_number(reserve_usd);
-                    let base_price_formatted = format_price(base_token_price);
+            let (base_name, base_symbol, base_addr) = if let Some(token) = base_token_info {
+                let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                (
+                    attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                )
+            } else {
+                ("?", "?", "?")
+            };
 
-                    let created_date = if pool_created_at != "Unknown" {
-                        pool_created_at.split('T').next().unwrap_or(pool_created_at)
-                    } else {
-                        "Unknown"
-                    };
+            let (quote_name, quote_symbol, quote_addr) = if let Some(token) = quote_token_info {
+                let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                (
+                    attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                    attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                )
+            } else {
+                ("?", "?", "?")
+            };
 
-                    // --- ENRICH WITH TOKEN & DEX INFO ---
-                    let (base_token_info, quote_token_info, dex_info) =
-                        if let Some(relationships) = pool.get("relationships") {
-                            let base_token_id = relationships
-                                .get("base_token")
-                                .and_then(|r| r.get("data"))
-                                .and_then(|d| d.get("id"))
-                                .and_then(|v| v.as_str());
-                            let quote_token_id = relationships
-                                .get("quote_token")
-                                .and_then(|r| r.get("data"))
-                                .and_then(|d| d.get("id"))
-                                .and_then(|v| v.as_str());
-                            let dex_id = relationships
-                                .get("dex")
-                                .and_then(|r| r.get("data"))
-                                .and_then(|d| d.get("id"))
-                                .and_then(|v| v.as_str());
-                            (
-                                base_token_id.and_then(|id| token_map.get(id)),
-                                quote_token_id.and_then(|id| token_map.get(id)),
-                                dex_id.and_then(|id| dex_map.get(id)),
-                            )
-                        } else {
-                            (None, None, None)
-                        };
+            let dex_name = if let Some(dex) = dex_info {
+                dex.get("attributes")
+                    .and_then(|a| a.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown DEX")
+            } else {
+                attributes
+                    .get("dex_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown DEX")
+            };
 
-                    let (_, base_symbol) = if let Some(token) = base_token_info {
-                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
-                        (
-                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
-                        )
-                    } else {
-                        ("?", "?")
-                    };
-                    let (_, quote_symbol) = if let Some(token) = quote_token_info {
-                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
-                        (
-                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
-                        )
-                    } else {
-                        ("?", "?")
-                    };
-                    let dex_name = if let Some(dex) = dex_info {
-                        dex.get("attributes")
-                            .and_then(|a| a.get("name"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown DEX")
-                    } else {
-                        attributes
-                            .get("dex_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown DEX")
-                    };
+            let created_date = if pool_created_at != "Unknown" {
+                pool_created_at.split('T').next().unwrap_or(pool_created_at)
+            } else {
+                "Unknown"
+            };
 
-                    result.push_str(&format!(
-                        "**{}. {} ({})** {}\n\
-🔹 **Pair:** {} / {}\n\
-🏦 **DEX:** {}\n\
-💰 **Price:** ${}\n\
-💧 **Liquidity:** ${}\n\
-📅 **Created:** {}\n\
-🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
-                        index + 1,
-                        name,
-                        dex_name,
-                        price_change_formatted,
-                        base_symbol,
-                        quote_symbol,
-                        dex_name,
-                        base_price_formatted,
-                        liquidity_formatted,
-                        created_date,
-                        network,
-                        pool_address
-                    ));
-                }
-            }
+            let liquidity_formatted = format_large_number(reserve_usd);
+            let base_price_formatted = format_price(base_token_price);
+            let quote_price_formatted = format_price(quote_token_price);
+
             result.push_str(&format!(
-                "📈 Data from GeckoTerminal • Showing {}/{} pools",
-                pools.len(),
-                pools.len()
+                "**{}. {}**\n🔹 **DEX:** {}\n🔹 **Base Token:** {} ({})\n  - Address: `{}`\n🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n💰 **Base Price:** ${} | **Quote Price:** ${}\n💧 **Liquidity (USD):** ${}\n📅 **Created:** {}\n🏊 **Pool Address:** `{}`\n🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
+                index + 1,
+                name,
+                dex_name,
+                base_name,
+                base_symbol,
+                base_addr,
+                quote_name,
+                quote_symbol,
+                quote_addr,
+                base_price_formatted,
+                quote_price_formatted,
+                liquidity_formatted,
+                created_date,
+                pool_address,
+                network,
+                pool_address
             ));
         }
-    } else {
-        result.push_str("❌ No pool data found in API response.");
     }
-    result
+
+    Some(result)
 }
+
 
 /// Execute get time fetch from WorldTimeAPI
 pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
