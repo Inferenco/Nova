@@ -1,5 +1,9 @@
-use crate::credentials::dto::Credentials;
+use crate::{credentials::dto::Credentials, services::handler::Services};
 use anyhow::Result;
+use inf_circle_sdk::{
+    circle_view::circle_view::CircleView,
+    dev_wallet::{dto::DevWallet, views::list_wallets::ListDevWalletsParamsBuilder},
+};
 use quark_core::helpers::jwt::JwtManager;
 use serde_json;
 use sled::Tree;
@@ -8,14 +12,28 @@ use teloxide::types::{Message, UserId};
 #[derive(Clone)]
 pub struct Auth {
     jwt_manager: JwtManager,
+    circle_view: CircleView,
     db: Tree,
+    wallet_set_id: String,
+    services: Services,
 }
 
 impl Auth {
-    pub fn new(db: Tree) -> Self {
+    pub fn new(
+        db: Tree,
+        circle_view: CircleView,
+        wallet_set_id: String,
+        services: Services,
+    ) -> Self {
         let jwt_manager = JwtManager::new();
 
-        Self { jwt_manager, db }
+        Self {
+            jwt_manager,
+            db,
+            circle_view,
+            wallet_set_id,
+            services,
+        }
     }
 
     pub fn get_credentials(&self, username: &str) -> Option<Credentials> {
@@ -44,6 +62,7 @@ impl Auth {
         user_id: UserId,
         account_address: String,
         resource_account_address: String,
+        circle_wallets: Option<Vec<DevWallet>>,
     ) -> bool {
         let account_address = account_address.clone();
 
@@ -52,10 +71,22 @@ impl Auth {
             .generate_token(user_id, account_address.clone())
         {
             Ok(token) => {
-                let jwt = token;
+                let jwt = token.clone();
 
-                let credentials =
-                    Credentials::from((jwt, user_id, account_address, resource_account_address));
+                let circle_wallets = if circle_wallets.is_some() {
+                    circle_wallets
+                } else {
+                    self.get_circle_wallets(account_address.clone(), token.clone())
+                        .await
+                };
+
+                let credentials = Credentials::from((
+                    jwt,
+                    user_id,
+                    account_address,
+                    resource_account_address,
+                    circle_wallets,
+                ));
 
                 let saved = self.save_credentials(&username, credentials);
 
@@ -116,6 +147,7 @@ impl Auth {
                     user.id,
                     credentials.account_address,
                     credentials.resource_account_address,
+                    credentials.circle_wallets,
                 )
                 .await;
         }
@@ -136,5 +168,27 @@ impl Auth {
             .collect::<Result<Vec<Credentials>>>();
 
         users
+    }
+
+    async fn get_circle_wallets(
+        &self,
+        account_address: String,
+        token: String,
+    ) -> Option<Vec<DevWallet>> {
+        let params = ListDevWalletsParamsBuilder::new()
+            .wallet_set_id(self.wallet_set_id.clone())
+            .ref_id(format!("nova-user-{}", account_address));
+
+        let circle_wallets = self.circle_view.list_wallets(params.build()).await;
+
+        match circle_wallets {
+            Ok(wallets) if !wallets.wallets.is_empty() => Some(wallets.wallets),
+            _ => self
+                .services
+                .create_user_wallet(token)
+                .await
+                .ok()
+                .map(|wallets| wallets.wallets),
+        }
     }
 }

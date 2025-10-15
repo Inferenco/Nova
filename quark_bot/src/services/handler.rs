@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use inf_circle_sdk::dev_wallet::dto::DevWalletsResponse;
 use reqwest::Client;
 
 use log::{debug, error, info, warn};
@@ -441,6 +442,122 @@ impl Services {
             Err(network_error) => {
                 error!(
                     "❌ Network error during migrate group id service call: {:?}",
+                    network_error
+                );
+                error!("❌ Failed to connect to: {}", url);
+                error!("❌ Network error details: {}", network_error);
+
+                Err(anyhow!("Network error: {}", network_error))
+            }
+        }
+    }
+
+    pub async fn create_user_wallet(&self, token: String) -> Result<DevWalletsResponse> {
+        let url = Endpoints::CreateUserWallet.to_string();
+        debug!("🌐 Making create wallet service request to: {}", url);
+
+        let response = self.client.post(&url).bearer_auth(token).send().await;
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                debug!("📡 Server response status: {}", status);
+                debug!("📡 Server response headers: {:?}", resp.headers());
+
+                if resp.status().is_success() {
+                    info!(
+                        "✅ Create wallet service call successful - Status: {}",
+                        status
+                    );
+                    let digest = resp.json::<DevWalletsResponse>().await;
+
+                    if digest.is_err() {
+                        error!(
+                            "❌ Failed to parse create wallet response: {:?}",
+                            digest.err()
+                        );
+                        Err(anyhow!("Failed to parse create wallet response"))
+                    } else {
+                        Ok(digest.unwrap())
+                    }
+                } else {
+                    let error_body = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unable to read error body".to_string());
+
+                    error!("❌ Server responded with error status: {}", status);
+                    error!("❌ Server error response body: {}", error_body);
+                    error!("❌ Request URL: {}", url);
+
+                    Err(anyhow!(
+                        "Create wallet service failed with status {}: {}",
+                        status,
+                        error_body
+                    ))
+                }
+            }
+            Err(network_error) => {
+                error!(
+                    "❌ Network error during create wallet service call: {:?}",
+                    network_error
+                );
+                error!("❌ Failed to connect to: {}", url);
+                error!("❌ Network error details: {}", network_error);
+
+                Err(anyhow!("Network error: {}", network_error))
+            }
+        }
+    }
+
+    pub async fn create_group_wallet(&self, token: String) -> Result<DevWalletsResponse> {
+        let url = Endpoints::CreateGroupWallet.to_string();
+        debug!("🌐 Making create group wallet service request to: {}", url);
+
+        let response = self.client.post(&url).bearer_auth(token).send().await;
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                debug!("📡 Server response status: {}", status);
+                debug!("📡 Server response headers: {:?}", resp.headers());
+
+                if resp.status().is_success() {
+                    info!(
+                        "✅ Create group wallet service call successful - Status: {}",
+                        status
+                    );
+                    let digest = resp.json::<DevWalletsResponse>().await;
+
+                    if digest.is_err() {
+                        error!(
+                            "❌ Failed to parse create group wallet response: {:?}",
+                            digest.err()
+                        );
+                        Err(anyhow!("Failed to parse create group wallet response"))
+                    } else {
+                        Ok(digest.unwrap())
+                    }
+                } else {
+                    let error_body = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unable to read error body".to_string());
+
+                    error!("❌ Server responded with error status: {}", status);
+                    error!("❌ Server error response body: {}", error_body);
+                    error!("❌ Request URL: {}", url);
+
+                    Err(anyhow!(
+                        "Create group wallet service failed with status {}: {}",
+                        status,
+                        error_body
+                    ))
+                }
+            }
+            Err(network_error) => {
+                error!(
+                    "❌ Network error during create group wallet service call: {:?}",
                     network_error
                 );
                 error!("❌ Failed to connect to: {}", url);

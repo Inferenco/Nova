@@ -22,6 +22,7 @@ use crate::{error::ErrorServer, state::ServerState};
         (status = 400, description = "Bad Request"),
     )
 )]
+#[axum::debug_handler]
 pub async fn create_group_wallet(
     State(server_state): State<Arc<ServerState>>,
     Extension(group): Extension<GroupPayload>,

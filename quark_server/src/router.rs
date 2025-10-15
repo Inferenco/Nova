@@ -11,6 +11,10 @@ use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 
 use crate::{
+    circle::{
+        create_group_wallet::handler::create_group_wallet,
+        create_user_wallet::handler::create_user_wallet,
+    },
     create_group::handler::create_group,
     dao::handler::create_proposal,
     docs::{dto::ApiDoc, handler::api_docs},
@@ -135,11 +139,17 @@ pub async fn router() -> Router {
         .route("/migrate-group-id", post(migrate_group_id))
         .route_layer(middleware::from_fn(auth_group));
 
+    let circle_router = Router::new()
+        .route("/circle/create-user-wallet", post(create_user_wallet))
+        .route("/circle/create-group-wallet", post(create_group_wallet))
+        .route_layer(middleware::from_fn(auth));
+
     Router::new()
         .merge(Redoc::with_url("/redoc", doc))
         .merge(auth_router)
         .route("/create-group", post(create_group))
         .merge(auth_group_router)
+        .merge(circle_router)
         .route("/", get(info))
         .route("/docs", get(api_docs))
         .layer(TraceLayer::new_for_http())

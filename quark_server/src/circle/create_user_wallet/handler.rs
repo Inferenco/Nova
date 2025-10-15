@@ -16,14 +16,15 @@ use crate::{error::ErrorServer, state::ServerState};
 
 #[utoipa::path(
     post,
-    path = "/create-user-wallet",
+    path = "/circle/create-user-wallet",
     description = "Create user wallet",
     responses(
         (status = 200, description = "Successful Response"),
         (status = 400, description = "Bad Request"),
     )
 )]
-pub async fn create_wallet(
+#[axum::debug_handler]
+pub async fn create_user_wallet(
     State(server_state): State<Arc<ServerState>>,
     Extension(user): Extension<UserPayload>,
 ) -> Result<Json<DevWalletsResponse>, ErrorServer> {

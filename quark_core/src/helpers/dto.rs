@@ -12,6 +12,8 @@ pub enum Endpoints {
     GroupPurchase,
     CreateProposal,
     MigrateGroupId,
+    CreateUserWallet,
+    CreateGroupWallet,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -159,6 +161,10 @@ impl fmt::Display for Endpoints {
             &Endpoints::GroupPurchase => write!(f, "{}/group-purchase", backend_url),
             &Endpoints::CreateProposal => write!(f, "{}/proposal", backend_url),
             &Endpoints::MigrateGroupId => write!(f, "{}/migrate-group-id", backend_url),
+            &Endpoints::CreateUserWallet => write!(f, "{}/circle/create-user-wallet", backend_url),
+            &Endpoints::CreateGroupWallet => {
+                write!(f, "{}/circle/create-group-wallet", backend_url)
+            }
         }
     }
 }

@@ -2,22 +2,37 @@ use std::env;
 
 use anyhow::Result;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
+use inf_circle_sdk::{
+    circle_view::circle_view::CircleView,
+    dev_wallet::{
+        dto::{DevWallet, DevWalletsResponse},
+        views::list_wallets::ListDevWalletsParamsBuilder,
+    },
+};
 use quark_core::helpers::jwt::JwtManager;
 use serde_json::Value;
 use sled::Tree;
 use teloxide::types::ChatId;
 
-use crate::{group::dto::GroupCredentials, panora::handler::Panora};
+use crate::{group::dto::GroupCredentials, panora::handler::Panora, services::handler::Services};
 
 #[derive(Clone)]
 pub struct Group {
     pub jwt_manager: JwtManager,
     pub db: Tree,
     pub account_seed: String,
+    pub circle_view: CircleView,
+    pub services: Services,
+    pub wallet_set_id: String,
 }
 
 impl Group {
-    pub fn new(db: Tree) -> Self {
+    pub fn new(
+        db: Tree,
+        circle_view: CircleView,
+        services: Services,
+        wallet_set_id: String,
+    ) -> Self {
         let jwt_manager = JwtManager::new();
 
         let account_seed: String =
@@ -27,6 +42,9 @@ impl Group {
             jwt_manager,
             db,
             account_seed,
+            circle_view,
+            services,
+            wallet_set_id,
         }
     }
 
@@ -59,17 +77,26 @@ impl Group {
         Ok(())
     }
 
-    pub fn generate_new_jwt(&self, group_id: ChatId) -> bool {
+    pub async fn generate_new_jwt(&self, group_id: ChatId) -> bool {
         let group_id = format!("{}-{}", group_id, self.account_seed);
 
         match self.jwt_manager.generate_group_token(group_id.clone()) {
             Ok(token) => {
-                let jwt = token;
+                let jwt = token.clone();
 
                 let users: Vec<String> = vec![];
 
-                let credentials =
-                    GroupCredentials::from((jwt, group_id.clone(), "".to_string(), users));
+                let circle_wallets = self
+                    .get_circle_wallet(group_id.clone(), token.clone())
+                    .await;
+
+                let credentials = GroupCredentials::from((
+                    jwt,
+                    group_id.clone(),
+                    "".to_string(),
+                    users,
+                    circle_wallets,
+                ));
 
                 let saved = self.save_credentials(credentials);
 
@@ -164,7 +191,7 @@ impl Group {
                 }
             }
 
-            return self.generate_new_jwt(group);
+            return self.generate_new_jwt(group).await;
         }
 
         println!("❌ No credentials found for group {}", group);
@@ -183,6 +210,7 @@ impl Group {
                 group_id: credentials.group_id,
                 resource_account_address: credentials.resource_account_address,
                 users,
+                circle_wallets: credentials.circle_wallets,
             };
 
             self.save_credentials(new_credentials)?;
@@ -194,5 +222,28 @@ impl Group {
         }
 
         Ok(())
+    }
+
+    async fn get_circle_wallet(&self, group_id: String, token: String) -> Option<Vec<DevWallet>> {
+        let group_wallets = ListDevWalletsParamsBuilder::new()
+            .wallet_set_id(self.wallet_set_id.clone())
+            .ref_id(format!("nova-group-{}", group_id))
+            .build();
+
+        let group_wallets = self.circle_view.list_wallets(group_wallets).await;
+
+        let group_wallets = if group_wallets.is_err() {
+            let group_wallets = self.services.create_group_wallet(token).await;
+
+            if group_wallets.is_err() {
+                return None;
+            }
+
+            group_wallets.unwrap().wallets
+        } else {
+            group_wallets.unwrap().wallets
+        };
+
+        Some(group_wallets)
     }
 }

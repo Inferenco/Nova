@@ -84,6 +84,7 @@ async fn main() {
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
     let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
     let default_symbol = env::var("DEFAULT_SYMBOL").expect("DEFAULT_SYMBOL not set");
+    let wallet_set_id = env::var("WALLET_SET_ID").expect("WALLET_SET_ID not set");
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
@@ -104,8 +105,6 @@ async fn main() {
     // Create clone for dispatcher early to avoid move issues
     let panora_for_dispatcher = panora.clone();
 
-    let auth = Auth::new(auth_db);
-    let group = Group::new(group_db);
     let filters = Filters::new(&db);
 
     // Execute token list updates immediately on startup
@@ -160,6 +159,19 @@ async fn main() {
         .expect("Failed to create job scheduler");
 
     let service = Services::new();
+
+    let auth = Auth::new(
+        auth_db,
+        circle_view.clone(),
+        wallet_set_id.clone(),
+        service.clone(),
+    );
+    let group = Group::new(
+        group_db,
+        circle_view.clone(),
+        service.clone(),
+        wallet_set_id,
+    );
 
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
         bot.clone(),

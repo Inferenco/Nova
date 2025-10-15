@@ -494,7 +494,7 @@ pub async fn handle_login_group(
         }
     }
 
-    let jwt = bot_deps.group.generate_new_jwt(group_id);
+    let jwt = bot_deps.group.generate_new_jwt(group_id).await;
 
     if !jwt {
         send_message(msg, bot, "❌ Unable to generate JWT.".to_string()).await?;
@@ -529,7 +529,7 @@ pub async fn handle_start(bot: Bot, msg: Message) -> AnyResult<()> {
         • Use /loginuser to authenticate and start using Nova\n\
         • Check out our quick tutorial: https://youtu.be/QAXWWXpzH-Q?si=Gslz7yS9l6BqC02E\n\n\
         💡 <i>Need help? Use /help to see all available commands.</i>";
-    
+
     send_html_message(msg, bot, welcome_text.to_string()).await?;
     Ok(())
 }
@@ -1029,6 +1029,7 @@ pub async fn handle_web_app_data(
             user_id,
             payload.account_address,
             payload.resource_account_address,
+            None,
         )
         .await;
 
@@ -1820,24 +1821,24 @@ async fn check_group_resource_account_address(
             if resource_account_address.is_ok() {
                 let resource_account_address = resource_account_address.unwrap();
 
-                let new_credentials = GroupCredentials {
-                    jwt: group_credentials.jwt.clone(),
-                    group_id: group_credentials.group_id.clone(),
-                    resource_account_address: resource_account_address[0].clone(),
-                    users: group_credentials.users.clone(),
-                };
-
-                bot_deps
-                    .group
-                    .save_credentials(new_credentials)
-                    .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
-
                 let updated_credentials = GroupCredentials {
                     jwt: group_credentials.jwt,
                     group_id: group_credentials.group_id,
                     resource_account_address: resource_account_address[0].clone(),
                     users: group_credentials.users,
+                    circle_wallets: group_credentials.circle_wallets,
                 };
+
+                // Serialize to save (since save_credentials takes ownership)
+                let save_value = serde_json::to_value(&updated_credentials)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize credentials: {}", e))?;
+                let save_credentials: GroupCredentials = serde_json::from_value(save_value)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize credentials: {}", e))?;
+
+                bot_deps
+                    .group
+                    .save_credentials(save_credentials)
+                    .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
 
                 return Ok(updated_credentials);
             }
