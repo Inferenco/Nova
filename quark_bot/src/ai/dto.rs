@@ -1,5 +1,54 @@
+use std::fmt;
+use reqwest::StatusCode;
 use open_ai_rust_responses_by_sshift::types::{Response, ResponseItem};
 use open_ai_rust_responses_by_sshift::{FunctionCallInfo, Model};
+
+// GeckoTerminal API constants
+pub const GECKO_MAX_RETRIES: usize = 3;
+pub const GECKO_RETRY_BASE_DELAY_MS: u64 = 300;
+
+/// Captures the different classes of failures that can occur when calling the GeckoTerminal API.
+#[derive(Debug)]
+pub enum GeckoRequestError {
+    Network(reqwest::Error),
+    ResponseRead(reqwest::Error),
+    Http { status: StatusCode, body: String },
+    Parse(serde_json::Error),
+    Api(Vec<String>),
+}
+
+impl fmt::Display for GeckoRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Network(err) => write!(f, "network error: {}", err),
+            Self::ResponseRead(err) => write!(f, "failed to read response body: {}", err),
+            Self::Http { status, body } => write!(f, "HTTP {}: {}", status, body),
+            Self::Parse(err) => write!(f, "failed to parse JSON payload: {}", err),
+            Self::Api(messages) => {
+                if messages.is_empty() {
+                    write!(f, "GeckoTerminal returned an error response")
+                } else if messages.len() == 1 {
+                    write!(f, "{}", messages[0])
+                } else {
+                    write!(f, "{}", messages.join(" | "))
+                }
+            }
+        }
+    }
+}
+
+/// Expected structure of the `data` field inside a GeckoTerminal JSON payload.
+pub enum GeckoPayloadShape {
+    Collection,
+    Object,
+}
+
+/// High-level classification describing whether the GeckoTerminal payload contained usable data.
+pub enum GeckoPayloadState {
+    Populated,
+    Empty,
+    Missing,
+}
 
 /// Represents the AI's response, which can include text and/or an image.
 #[derive(Debug)]

@@ -1,5 +1,4 @@
 use std::env;
-use std::fmt;
 
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -12,52 +11,11 @@ use tokio::time::{sleep, Duration};
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
 use crate::pending_transactions::dto::PendingTransaction;
+use crate::ai::{
+    GeckoRequestError, GeckoPayloadShape, GeckoPayloadState,
+    GECKO_MAX_RETRIES, GECKO_RETRY_BASE_DELAY_MS,
+};
 
-const GECKO_MAX_RETRIES: usize = 3;
-const GECKO_RETRY_BASE_DELAY_MS: u64 = 300;
-
-/// Captures the different classes of failures that can occur when calling the GeckoTerminal API.
-#[derive(Debug)]
-enum GeckoRequestError {
-    Network(reqwest::Error),
-    ResponseRead(reqwest::Error),
-    Http { status: StatusCode, body: String },
-    Parse(serde_json::Error),
-    Api(Vec<String>),
-}
-
-impl fmt::Display for GeckoRequestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Network(err) => write!(f, "network error: {}", err),
-            Self::ResponseRead(err) => write!(f, "failed to read response body: {}", err),
-            Self::Http { status, body } => write!(f, "HTTP {}: {}", status, body),
-            Self::Parse(err) => write!(f, "failed to parse JSON payload: {}", err),
-            Self::Api(messages) => {
-                if messages.is_empty() {
-                    write!(f, "GeckoTerminal returned an error response")
-                } else if messages.len() == 1 {
-                    write!(f, "{}", messages[0])
-                } else {
-                    write!(f, "{}", messages.join(" | "))
-                }
-            }
-        }
-    }
-}
-
-/// Expected structure of the `data` field inside a GeckoTerminal JSON payload.
-enum GeckoPayloadShape {
-    Collection,
-    Object,
-}
-
-/// High-level classification describing whether the GeckoTerminal payload contained usable data.
-enum GeckoPayloadState {
-    Populated,
-    Empty,
-    Missing,
-}
 
 /// Execute a GeckoTerminal request with retry/backoff logic and return the parsed JSON body.
 async fn send_gecko_request(
@@ -150,13 +108,27 @@ async fn send_gecko_request(
                                             .unwrap_or_else(|| error.to_string())
                                     })
                                     .collect();
-                                log::error!(
-                                    "GeckoTerminal API returned error payload on attempt {} (url: {}): {:?}",
+                                if attempt_number >= GECKO_MAX_RETRIES {
+                                    log::error!(
+                                        "GeckoTerminal API returned error payload after {} attempts (url: {}): {:?}",
+                                        attempt_number,
+                                        url,
+                                        messages
+                                    );
+                                    return Err(GeckoRequestError::Api(messages));
+                                }
+
+                                let delay =
+                                    Duration::from_millis(GECKO_RETRY_BASE_DELAY_MS * attempt_number as u64);
+                                log::warn!(
+                                    "GeckoTerminal API returned error payload on attempt {}: {:?}. Retrying in {}ms...",
                                     attempt_number,
-                                    url,
-                                    messages
+                                    messages,
+                                    delay.as_millis()
                                 );
-                                return Err(GeckoRequestError::Api(messages));
+                                sleep(delay).await;
+                                attempt += 1;
+                                continue;
                             }
                         }
 

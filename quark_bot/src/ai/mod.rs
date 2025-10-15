@@ -10,3 +10,9 @@ pub mod sentinel;
 pub mod summarizer;
 pub mod tools;
 pub mod vector_store;
+
+// Re-export commonly used types from dto module
+pub use dto::{
+    GeckoRequestError, GeckoPayloadShape, GeckoPayloadState,
+    GECKO_MAX_RETRIES, GECKO_RETRY_BASE_DELAY_MS,
+};
